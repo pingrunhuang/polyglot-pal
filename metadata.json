@@ -1,0 +1,7 @@
+{
+  "name": "Polyglot Pal",
+  "description": "Your charming AI French tutor and friend. Chat naturally, get instant corrections, and learn French through immersion.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

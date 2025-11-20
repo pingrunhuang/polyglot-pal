@@ -61,9 +61,9 @@ let currentVoiceName = 'Fenrir';
 export const initChat = (scenario: Scenarios, language: SupportedLanguage) => {
   const config = LANGUAGE_CONFIGS[language];
   currentVoiceName = config.voiceName; // Store for TTS
-  
+
   const scenarioPrompt = `The current topic is: ${scenario}. Start the conversation by introducing yourself as ${config.tutorName} and asking a relevant question in ${config.name}.`;
-  
+
   chatSession = ai.chats.create({
     model: 'gemini-2.5-flash',
     config: {
@@ -106,7 +106,7 @@ const retryOperation = async <T>(operation: () => Promise<T>, retries = 3, delay
     if (retries <= 0) throw error;
     console.warn(`Operation failed, retrying in ${delay}ms...`, error);
     await new Promise(resolve => setTimeout(resolve, delay));
-    return retryOperation(operation, retries - 1, delay * 1.5); 
+    return retryOperation(operation, retries - 1, delay * 1.5);
   }
 };
 
@@ -159,7 +159,7 @@ export const generateSpeech = async (text: string): Promise<Uint8Array> => {
     if (!base64Audio) {
       throw new Error("No audio data returned from Gemini");
     }
-    
+
     const binaryString = atob(base64Audio);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);

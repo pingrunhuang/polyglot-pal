@@ -9,20 +9,24 @@ export const LANGUAGE_CONFIGS: Record<SupportedLanguage, LanguageConfig> = {
   Japanese: { id: 'Japanese', name: 'Japanese', flag: '🇯🇵', tutorName: 'Yuki', voiceName: 'Puck', speechCode: 'ja-JP', greeting: 'こんにちは！元気ですか？' },
 };
 
-let currentSessionId: string | null = null;
 let currentVoiceName = 'Fenrir';
+let currentSessionId = Math.random().toString(36).substring(7) + Date.now().toString();
+
+export const resetSession = () => {
+  currentSessionId = Math.random().toString(36).substring(7) + Date.now().toString();
+};
 
 // Helper to get the correct API URL
 const getApiUrl = (endpoint: string) => {
-  const baseUrl = import.meta.env?.VITE_API_URL || '';
+  const baseUrl = import.meta.env?.VITE_API_URL || ''; // Default to proxy if empty
   const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   return `${cleanBaseUrl}${endpoint}`;
 };
 
 // Helper for Fetch with Timeout
 const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
-  const timeoutMs = parseInt(import.meta.env.VITE_API_TIMEOUT || '15000', 10); // Default 15s
-  
+  const timeoutMs = parseInt(import.meta.env.VITE_API_TIMEOUT || '25000', 10);
+
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -36,48 +40,35 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
   } catch (error: any) {
     clearTimeout(id);
     if (error.name === 'AbortError') {
-      throw new Error(`Request timed out after ${timeoutMs / 1000} seconds. The server might be busy or unreachable.`);
+      throw new Error(`Request timed out after ${timeoutMs / 1000} seconds. The server might be waking up.`);
     }
     throw error;
   }
 };
 
-export const initChat = async (scenario: Scenarios, language: SupportedLanguage): Promise<any> => {
+// Note: We no longer need to pass 'history' because the backend is stateful
+export const chatWithGemini = async (
+  message: string,
+  language: SupportedLanguage,
+  scenario?: Scenarios
+): Promise<{ correction: CorrectionData, response: TutorResponseData }> => {
+
   const config = LANGUAGE_CONFIGS[language];
   currentVoiceName = config.voiceName;
-  
-  const response = await fetchWithTimeout(getApiUrl('/api/chat/start'), {
+
+  const response = await fetchWithTimeout(getApiUrl('/api/chat'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scenario, language })
+    body: JSON.stringify({
+      message,
+      sessionId: currentSessionId, // Send ID instead of history
+      language,
+      scenario
+    })
   });
 
   if (!response.ok) {
-    throw new Error(`Backend Init Error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  currentSessionId = data.sessionId;
-  
-  return {
-    correction: data.correction,
-    response: data.response
-  };
-};
-
-export const sendMessageToGemini = async (message: string): Promise<{ correction: CorrectionData, response: TutorResponseData }> => {
-  if (!currentSessionId) {
-    throw new Error("Chat session not initialized. Call initChat first.");
-  }
-
-  const response = await fetchWithTimeout(getApiUrl('/api/chat/message'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, sessionId: currentSessionId })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Backend Message Error: ${response.statusText}`);
+    throw new Error(`Backend Error: ${response.statusText}`);
   }
 
   const data = await response.json();
@@ -101,7 +92,7 @@ export const generateSpeech = async (text: string): Promise<Uint8Array> => {
 
     const data = await response.json();
     const base64Audio = data.audioData;
-    
+
     const binaryString = atob(base64Audio);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);

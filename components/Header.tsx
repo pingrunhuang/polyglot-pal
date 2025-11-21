@@ -11,8 +11,8 @@ interface HeaderProps {
 
 const Header: React.FC<HeaderProps> = ({ onReset, onBack, onSettings, config }) => {
   return (
-    <header className="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
-      <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
+    <header className="bg-white/90 backdrop-blur-md border-b border-slate-200 fixed top-0 left-0 right-0 z-40 h-16 transition-all duration-300">
+      <div className="max-w-3xl mx-auto px-4 h-full flex items-center justify-between">
         <div className="flex items-center space-x-3">
           {onBack && (
             <button
@@ -34,9 +34,9 @@ const Header: React.FC<HeaderProps> = ({ onReset, onBack, onSettings, config }) 
           )}
 
           <div>
-            <h1 className="text-lg font-bold text-slate-800 tracking-tight flex items-center">
+            <h1 className="text-lg font-bold text-slate-800 tracking-tight flex items-center leading-tight">
               {config ? `Ami ${config.name}` : 'Polyglot Pal'}
-              <span className="ml-2 text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full hidden sm:inline-block">AI Tutor</span>
+              <span className="ml-2 text-[10px] uppercase tracking-wider bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full hidden sm:inline-block font-bold">AI Tutor</span>
             </h1>
             <p className="text-xs text-slate-500 font-medium">
               {config ? `Learn ${config.name} naturally` : 'Choose your language'}

@@ -4,7 +4,7 @@ import ChatBubble from './components/ChatBubble';
 import InputArea from './components/InputArea';
 import { Message, Sender, Scenarios, SupportedLanguage, LanguageConfig } from './types';
 import { chatWithGemini, LANGUAGE_CONFIGS, resetSession, getApiUrl } from './services/geminiService';
-import { BookOpen, Coffee, Plane, Sparkles, AlertCircle, Globe2, ChevronRight, X, Terminal, ShieldAlert, Save, RotateCcw } from 'lucide-react';
+import { BookOpen, Coffee, Plane, Sparkles, AlertCircle, Globe2, ChevronRight, X, Terminal, ShieldAlert, Save, RotateCcw, Loader2 } from 'lucide-react';
 
 const SCENARIO_OPTIONS = [
   { id: Scenarios.INTRO, icon: Sparkles, label: 'Basics', desc: 'Start from scratch' },
@@ -106,7 +106,7 @@ const ErrorModal = ({ message, debugInfo, onClose, onOpenSettings }: { message: 
   const isMixedContentError = debugInfo?.includes("Mixed Content") || debugInfo?.includes("was loaded over HTTPS, but requested an insecure resource");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-red-100">
         <div className="bg-red-50 px-6 py-4 flex items-center justify-between border-b border-red-100">
           <div className="flex items-center space-x-2">
@@ -178,6 +178,7 @@ function App() {
   const [debugInfo, setDebugInfo] = useState<string | null>(null);
   const [loadingText, setLoadingText] = useState("Tutor is thinking...");
   const [showSettings, setShowSettings] = useState(false);
+  const [loadingScenario, setLoadingScenario] = useState<Scenarios | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -221,20 +222,21 @@ function App() {
     setCurrentConfig(null);
     setHasStarted(false);
     setMessages([]);
+    setLoadingScenario(null);
   };
 
   const startScenario = async (scenario: Scenarios) => {
     if (!selectedLanguage || !currentConfig) return;
 
-    setHasStarted(true);
+    setLoadingScenario(scenario);
     setMessages([]);
     setErrorMsg(null);
     setDebugInfo(null);
-    setIsTyping(true);
     resetSession(); // New session ID for new scenario
 
     try {
       // Pass empty message + scenario to trigger start
+      // We wait for the response BEFORE switching the view
       const result = await chatWithGemini('', selectedLanguage, scenario);
 
       const tutorMsg: Message = {
@@ -246,10 +248,12 @@ function App() {
         timestamp: Date.now()
       };
       setMessages([tutorMsg]);
+      setHasStarted(true); // NOW we switch to the chat view
     } catch (error: any) {
       handleError(error);
       setHasStarted(false);
     } finally {
+      setLoadingScenario(null);
       setIsTyping(false);
     }
   };
@@ -320,6 +324,7 @@ function App() {
     setMessages([]);
     setErrorMsg(null);
     setDebugInfo(null);
+    setLoadingScenario(null);
   };
 
   // --- RENDER: LANGUAGE SELECTION SCREEN ---
@@ -330,13 +335,13 @@ function App() {
           onReset={() => { }}
           onSettings={() => setShowSettings(true)}
         />
-        <main className="flex-1 overflow-y-auto p-4">
+        <main className="flex-1 overflow-y-auto p-4 pt-24 scroll-smooth">
           <div className="max-w-4xl w-full mx-auto animate-fade-in min-h-full flex flex-col pb-8">
-            <div className="text-center mb-12 mt-8 md:mt-16">
+            <div className="text-center mb-12 mt-4 md:mt-8">
               <div className="inline-flex items-center justify-center p-4 bg-white rounded-full shadow-xl mb-6">
                 <Globe2 className="w-12 h-12 text-blue-600" />
               </div>
-              <h2 className="text-4xl font-bold text-slate-800 mb-4">Choose Your Language</h2>
+              <h2 className="text-3xl sm:text-4xl font-bold text-slate-800 mb-4">Choose Your Language</h2>
               <p className="text-lg text-slate-500 max-w-xl mx-auto">
                 Select a language to start your immersive learning journey with an AI friend.
               </p>
@@ -387,8 +392,8 @@ function App() {
         config={currentConfig}
       />
 
-      {/* Reduced padding from p-4 to p-3 sm:p-4 for better mobile width */}
-      <main className="flex-1 overflow-y-auto p-3 sm:p-4 scroll-smooth">
+      {/* PT-24 ensures content starts below the fixed header */}
+      <main className="flex-1 overflow-y-auto p-3 sm:p-4 pt-24 scroll-smooth">
         <div className="max-w-3xl mx-auto min-h-full flex flex-col">
 
           {!hasStarted && (
@@ -408,14 +413,27 @@ function App() {
                   <button
                     key={option.id}
                     onClick={() => startScenario(option.id)}
-                    className="flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:border-blue-400 hover:shadow-md transition-all group text-left"
+                    disabled={loadingScenario !== null}
+                    className={`flex items-center p-4 bg-white border rounded-xl transition-all group text-left relative overflow-hidden ${loadingScenario === option.id
+                        ? 'border-blue-400 ring-2 ring-blue-100 shadow-md'
+                        : 'border-slate-200 hover:border-blue-400 hover:shadow-md cursor-pointer'
+                      } ${loadingScenario !== null && loadingScenario !== option.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
-                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mr-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                      <option.icon className="w-6 h-6" />
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center mr-4 transition-colors ${loadingScenario === option.id
+                        ? 'bg-blue-100 text-blue-600'
+                        : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
+                      }`}>
+                      {loadingScenario === option.id ? (
+                        <Loader2 className="w-6 h-6 animate-spin" />
+                      ) : (
+                        <option.icon className="w-6 h-6" />
+                      )}
                     </div>
                     <div>
                       <h3 className="font-semibold text-slate-800">{option.label}</h3>
-                      <p className="text-xs text-slate-500">{option.desc}</p>
+                      <p className="text-xs text-slate-500">
+                        {loadingScenario === option.id ? "Connecting..." : option.desc}
+                      </p>
                     </div>
                   </button>
                 ))}
@@ -434,12 +452,12 @@ function App() {
               ))}
 
               {isTyping && (
-                <div className="flex justify-start mb-6 animate-fade-in">
+                <div className="flex justify-start mb-6 animate-fade-in px-1">
                   <div className="flex items-end space-x-2 max-w-[85%]">
-                    <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center mb-1">
+                    <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center mb-1 shadow-sm">
                       <span className="text-xs font-bold text-slate-500">{currentConfig.tutorName.charAt(0)}</span>
                     </div>
-                    <div className="bg-white border border-slate-200 px-4 py-3 rounded-2xl rounded-bl-none shadow-sm flex items-center space-x-2">
+                    <div className="bg-white border border-slate-100 px-4 py-3 rounded-2xl rounded-bl-none shadow-md flex items-center space-x-2">
                       <div className="flex space-x-1 h-3 items-center">
                         <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-0"></div>
                         <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-150"></div>

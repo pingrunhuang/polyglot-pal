@@ -1,35 +1,36 @@
 import React from 'react';
-import { Languages, RefreshCcw, ArrowLeft } from 'lucide-react';
+import { Languages, RefreshCcw, ArrowLeft, Settings } from 'lucide-react';
 import { LanguageConfig } from '../types';
 
 interface HeaderProps {
   onReset: () => void;
   onBack?: () => void;
+  onSettings: () => void;
   config?: LanguageConfig;
 }
 
-const Header: React.FC<HeaderProps> = ({ onReset, onBack, config }) => {
+const Header: React.FC<HeaderProps> = ({ onReset, onBack, onSettings, config }) => {
   return (
     <header className="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
       <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
         <div className="flex items-center space-x-3">
           {onBack && (
-            <button 
+            <button
               onClick={onBack}
               className="p-2 -ml-2 mr-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-all"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
-          
+
           {config ? (
             <div className="bg-blue-50 p-2 rounded-lg text-xl shadow-sm border border-blue-100">
               {config.flag}
             </div>
           ) : (
-             <div className="bg-blue-600 p-2 rounded-lg text-white shadow-lg shadow-blue-600/20">
-               <Languages className="w-6 h-6" />
-             </div>
+            <div className="bg-blue-600 p-2 rounded-lg text-white shadow-lg shadow-blue-600/20">
+              <Languages className="w-6 h-6" />
+            </div>
           )}
 
           <div>
@@ -42,16 +43,26 @@ const Header: React.FC<HeaderProps> = ({ onReset, onBack, config }) => {
             </p>
           </div>
         </div>
-        
-        {config && (
-          <button 
-            onClick={onReset}
+
+        <div className="flex items-center space-x-1">
+          <button
+            onClick={onSettings}
             className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all"
-            title="Restart Conversation"
+            title="Settings"
           >
-            <RefreshCcw className="w-5 h-5" />
+            <Settings className="w-5 h-5" />
           </button>
-        )}
+
+          {config && (
+            <button
+              onClick={onReset}
+              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all"
+              title="Restart Conversation"
+            >
+              <RefreshCcw className="w-5 h-5" />
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );

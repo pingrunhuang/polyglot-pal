@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Message, Sender, LanguageConfig } from '../types';
-import { Volume2, StopCircle, Sparkles, Eye, Loader2 } from 'lucide-react';
+import { Volume2, StopCircle, Sparkles, Eye, Loader2, ChevronDown, ChevronUp, Languages } from 'lucide-react';
 import { generateSpeech } from '../services/geminiService';
 
 interface ChatBubbleProps {
@@ -15,7 +15,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const hasAutoPlayedRef = useRef(false);
-  
+
   const audioCacheRef = useRef<Uint8Array | null>(null);
 
   useEffect(() => {
@@ -28,7 +28,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
 
   const handleSpeak = async (text: string) => {
     if (isAudioLoading) return;
-    
+
     if (isPlaying && audioContextRef.current) {
       try {
         await audioContextRef.current.close();
@@ -51,14 +51,14 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
         pcmData = await generateSpeech(text);
         audioCacheRef.current = pcmData;
       }
-      
+
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass({ sampleRate: 24000 });
-      
+
       if (ctx.state === 'suspended') {
         await ctx.resume();
       }
-      
+
       audioContextRef.current = ctx;
 
       const dataInt16 = new Int16Array(pcmData.buffer);
@@ -73,7 +73,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
-      
+
       source.onended = () => {
         setIsPlaying(false);
       };
@@ -100,12 +100,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-6 animate-fade-in">
+      <div className="flex justify-end mb-4 animate-fade-in">
         <div className="max-w-[85%] md:max-w-[70%]">
-          <div className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white px-6 py-3 rounded-2xl rounded-tr-sm shadow-md">
-            <p className="text-lg leading-relaxed">{message.text}</p>
+          <div className="bg-blue-600 text-white px-5 py-3 rounded-2xl rounded-br-none shadow-sm">
+            <p className="text-base leading-relaxed">{message.text}</p>
           </div>
-          <div className="text-right text-xs text-slate-400 mt-1 mr-1">
+          <div className="text-right text-[10px] text-slate-400 mt-1 mr-1 font-medium">
             {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
         </div>
@@ -119,21 +119,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
 
   if (isLoading) {
     return (
-      <div className="flex justify-start mb-6 animate-fade-in">
-        <div className="flex flex-col max-w-[85%] md:max-w-[70%]">
-          <div className="flex items-center space-x-2 mb-1">
-             <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center border border-red-200">
-                <span className="font-handwriting font-bold text-red-600 text-xl">{tutorInitial}</span>
-             </div>
-             <span className="text-sm font-medium text-slate-600">{tutorName}</span>
+      <div className="flex justify-start mb-4 animate-fade-in">
+        <div className="flex items-end space-x-2 max-w-[85%]">
+          <div className="w-6 h-6 rounded-full bg-slate-200 flex-shrink-0 flex items-center justify-center mb-1">
+            <span className="text-xs font-bold text-slate-500">{tutorInitial}</span>
           </div>
-          <div className="bg-white border border-slate-200 px-6 py-4 rounded-2xl rounded-tl-sm shadow-sm flex items-center space-x-3">
-            <div className="flex space-x-1 h-4 items-center">
-              <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce delay-0"></div>
-              <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce delay-150"></div>
-              <div className="w-2 h-2 bg-blue-400 rounded-full animate-bounce delay-300"></div>
+          <div className="bg-white border border-slate-100 px-4 py-3 rounded-2xl rounded-bl-none shadow-sm flex items-center space-x-2">
+            <div className="flex space-x-1 h-3 items-center">
+              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-0"></div>
+              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-150"></div>
+              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-300"></div>
             </div>
-            <span className="text-sm text-slate-400 font-medium animate-pulse">{message.text || `${tutorName} is thinking...`}</span>
+            <span className="text-xs text-slate-400 font-medium">{message.text || "Thinking..."}</span>
           </div>
         </div>
       </div>
@@ -141,131 +138,118 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
   }
 
   return (
-    <div className="flex justify-start mb-8 animate-fade-in">
-      <div className="flex flex-col max-w-[95%] md:max-w-[85%]">
-        
-        {/* Avatar Label */}
-        <div className="flex items-center space-x-2 mb-2 pl-1">
-           <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-blue-100 shadow-sm">
-              <span className="font-handwriting font-bold text-blue-600 text-xl">{tutorInitial}</span>
-           </div>
-           <span className="text-sm font-medium text-slate-600">{tutorName}</span>
-           <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">Tutor</span>
+    <div className="flex justify-start mb-6 animate-fade-in w-full">
+      <div className="flex flex-col w-full max-w-full sm:max-w-[90%]">
+
+        {/* Avatar Header */}
+        <div className="flex items-center space-x-2 mb-1 pl-1">
+          <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center border border-blue-100 shadow-sm">
+            <span className="font-handwriting font-bold text-blue-600 text-xs">{tutorInitial}</span>
+          </div>
+          <span className="text-xs font-bold text-slate-500">{tutorName}</span>
         </div>
 
-        {/* Correction Panel */}
+        {/* Correction Panel - More Compact */}
         {correction && correction.hasMistake && (
-          <div className="mb-3 ml-2 bg-orange-50 border-l-4 border-orange-400 p-4 rounded-r-lg shadow-sm">
-            <div className="flex items-start space-x-3">
-              <div className="mt-1">
-                 <Sparkles className="w-5 h-5 text-orange-500" />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-sm font-bold text-orange-800 uppercase tracking-wide mb-1">Correction</h4>
-                <p className="text-slate-700 mb-2 text-sm">
-                  <span className="font-semibold text-red-500 line-through mr-2 opacity-70">Your input</span>
-                  <span className="text-green-600 font-semibold">{correction.correctedText}</span>
+          <div className="mb-2 ml-2 bg-orange-50 border-l-2 border-orange-400 p-3 rounded-r-lg shadow-sm max-w-[95%]">
+            <div className="flex items-start space-x-2">
+              <Sparkles className="w-4 h-4 text-orange-500 mt-0.5 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-slate-700 text-sm leading-snug">
+                  <span className="font-medium text-red-500 line-through mr-1 opacity-70">{message.text}</span>
+                  <span className="text-green-600 font-medium break-words">{correction.correctedText}</span>
                 </p>
-                <p className="text-sm text-slate-600 italic border-t border-orange-200 pt-2 mt-2">
-                  "{correction.explanation}"
+                <p className="text-xs text-slate-500 mt-1 italic">
+                  {correction.explanation}
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {/* Main Response Bubble */}
-        <div className="bg-white border border-slate-100 rounded-2xl rounded-tl-sm shadow-lg group relative overflow-hidden transition-all duration-500">
-           {/* Decor */}
-           <div className="absolute top-0 right-0 w-20 h-20 bg-blue-50 rounded-bl-full -mr-10 -mt-10 opacity-50 pointer-events-none"></div>
+        {/* Main Bubble */}
+        <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm shadow-sm overflow-hidden transition-all duration-300">
 
-           <div className="p-5 relative z-10">
-            
-            {/* Audio / Visibility Control Section */}
-            <div className="flex items-center space-x-4 mb-2">
-                 <button 
-                    onClick={() => handleSpeak(tutorResponse?.targetText || '')}
-                    disabled={isAudioLoading}
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-sm ${
-                      isPlaying 
-                        ? 'bg-red-50 text-red-600 border border-red-200 animate-pulse ring-4 ring-red-100' 
-                        : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'
-                    }`}
-                 >
-                   {isAudioLoading ? (
-                     <Loader2 className="w-6 h-6 animate-spin" />
-                   ) : isPlaying ? (
-                     <StopCircle className="w-6 h-6" />
-                   ) : (
-                     <Volume2 className="w-6 h-6" />
-                   )}
-                 </button>
+          <div className="p-4">
+            {/* Top Controls: Play & Toggle */}
+            <div className="flex items-center justify-between mb-3">
+              <button
+                onClick={() => handleSpeak(tutorResponse?.targetText || '')}
+                disabled={isAudioLoading}
+                className={`flex items-center space-x-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${isPlaying
+                    ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200'
+                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
+              >
+                {isAudioLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : isPlaying ? (
+                  <StopCircle className="w-4 h-4 fill-current" />
+                ) : (
+                  <Volume2 className="w-4 h-4" />
+                )}
+                <span>{isPlaying ? "Stop" : "Play Audio"}</span>
+              </button>
 
-                 <div className="flex-1">
-                    {isPlaying ? (
-                        <div className="h-8 flex items-center space-x-1">
-                            <div className="w-1 h-3 bg-blue-400 rounded-full animate-[bounce_1s_infinite]"></div>
-                            <div className="w-1 h-5 bg-blue-500 rounded-full animate-[bounce_1s_infinite_0.2s]"></div>
-                            <div className="w-1 h-3 bg-blue-400 rounded-full animate-[bounce_1s_infinite_0.4s]"></div>
-                            <span className="ml-2 text-sm text-slate-500 font-medium">Speaking...</span>
-                        </div>
-                    ) : (
-                        <div className="text-slate-500 text-sm font-medium">Click to replay</div>
-                    )}
-                 </div>
+              <button
+                onClick={() => setShowTranscript(!showTranscript)}
+                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                title={showTranscript ? "Hide Text" : "Show Text"}
+              >
+                {showTranscript ? <ChevronUp className="w-5 h-5" /> : <Languages className="w-5 h-5" />}
+              </button>
             </div>
 
-            {/* Transcript Reveal Button */}
-            {!showTranscript && (
-                 <button 
-                    onClick={() => setShowTranscript(true)}
-                    className="mt-2 w-full py-3 bg-slate-50 hover:bg-slate-100 border border-dashed border-slate-300 rounded-xl flex items-center justify-center text-slate-500 text-sm font-medium transition-all group-hover:border-blue-300 group-hover:text-blue-600"
-                 >
-                    <Eye className="w-4 h-4 mr-2" />
-                    View Transcript & Translations
-                 </button>
-            )}
+            {/* Content Area */}
+            <div className={`transition-all duration-500 ease-in-out ${showTranscript ? 'opacity-100' : 'opacity-80'}`}>
 
-            {/* Full Transcript Content */}
-            <div className={`overflow-hidden transition-all duration-500 ease-in-out ${showTranscript ? 'max-h-[500px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
-               <div className="space-y-4">
-                   {/* Target Language Main */}
-                   <div>
-                       <h5 className="text-xs font-bold text-blue-600 uppercase tracking-widest mb-1">{languageConfig?.name || "Target Language"}</h5>
-                       <p className="text-xl font-medium text-slate-800 leading-relaxed font-sans">
-                         {tutorResponse?.targetText}
-                       </p>
-                   </div>
+              {/* Target Text (Always visible if transcript shown, or if specific logic requires. 
+                   Previously it was hidden. Let's keep the 'reveal' logic but make it nicer.) */}
 
-                   {/* English Translation */}
-                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                       <h5 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">English</h5>
-                       <p className="text-slate-600 text-base italic">
-                         {tutorResponse?.english}
-                       </p>
-                   </div>
+              {!showTranscript ? (
+                <div className="text-center py-4 cursor-pointer" onClick={() => setShowTranscript(true)}>
+                  <p className="text-sm text-slate-400 font-medium italic flex items-center justify-center">
+                    <Eye className="w-4 h-4 mr-2" /> Tap to reveal transcript
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4 animate-fade-in">
+                  {/* Main Language Text */}
+                  <div>
+                    <p className="text-xl sm:text-2xl font-medium text-slate-900 leading-relaxed tracking-wide">
+                      {tutorResponse?.targetText}
+                    </p>
+                  </div>
 
-                    {/* Chinese Translation */}
-                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
-                       <h5 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Chinese</h5>
-                       <p className="text-slate-600 text-base">
-                         {tutorResponse?.chinese}
-                       </p>
-                   </div>
-                   
-                   <button 
-                      onClick={() => setShowTranscript(false)}
-                      className="text-xs text-slate-400 hover:text-slate-600 underline w-full text-center pt-2"
-                   >
-                       Hide Transcript
-                   </button>
-               </div>
+                  {/* Translations */}
+                  <div className="pt-3 border-t border-dashed border-slate-200 space-y-3">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">English</span>
+                      <p className="text-slate-600 text-sm leading-relaxed">
+                        {tutorResponse?.english}
+                      </p>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Chinese / 中文</span>
+                      <p className="text-slate-600 text-sm leading-relaxed">
+                        {tutorResponse?.chinese}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-           </div>
-        </div>
-        
-        <div className="text-left text-xs text-slate-400 mt-1 ml-1">
-           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+
+          {/* Footer Status */}
+          {showTranscript && (
+            <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 flex justify-center" onClick={() => setShowTranscript(false)}>
+              <button className="text-xs text-slate-400 hover:text-slate-600 font-medium flex items-center">
+                <ChevronDown className="w-3 h-3 mr-1" /> Hide Transcript
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

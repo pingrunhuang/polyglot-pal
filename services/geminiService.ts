@@ -17,20 +17,32 @@ export const resetSession = () => {
 };
 
 // Helper to get the correct API URL
-const getApiUrl = (endpoint: string) => {
-  const baseUrl = import.meta.env?.VITE_API_URL || ''; // Default to proxy if empty
+export const getApiUrl = (endpoint: string) => {
+  // 1. Check LocalStorage (Manual Override)
+  const customUrl = localStorage.getItem('custom_api_url');
+  if (customUrl) {
+    const cleanCustom = customUrl.endsWith('/') ? customUrl.slice(0, -1) : customUrl;
+    return `${cleanCustom}${endpoint}`;
+  }
+
+  // 2. Check Environment Variable
+  // Safe access using optional chaining in case import.meta.env is undefined
+  const baseUrl = import.meta.env?.VITE_API_URL || '';
   const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   return `${cleanBaseUrl}${endpoint}`;
 };
 
 // Helper for Fetch with Timeout
 const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
-  const timeoutMs = parseInt(import.meta.env.VITE_API_TIMEOUT || '25000', 10);
+  // Safe access using optional chaining
+  const envTimeout = import.meta.env?.VITE_API_TIMEOUT;
+  const timeoutMs = parseInt(envTimeout || '25000', 10);
 
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    console.log(`Fetching: ${url}`); // Debug log
     const response = await fetch(url, {
       ...options,
       signal: controller.signal
@@ -46,7 +58,6 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
   }
 };
 
-// Note: We no longer need to pass 'history' because the backend is stateful
 export const chatWithGemini = async (
   message: string,
   language: SupportedLanguage,
@@ -61,14 +72,13 @@ export const chatWithGemini = async (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message,
-      sessionId: currentSessionId, // Send ID instead of history
+      sessionId: currentSessionId,
       language,
       scenario
     })
   });
 
   if (!response.ok) {
-    // Try to parse the JSON error message from the backend
     let errorMessage = response.statusText;
     try {
       const errorData = await response.json();

@@ -1,259 +1,483 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Message, Sender, LanguageConfig } from '../types';
-import { Volume2, StopCircle, Sparkles, Eye, Loader2, ChevronDown, ChevronUp, Languages } from 'lucide-react';
-import { generateSpeech } from '../services/geminiService';
+import React, { useState, useEffect, useRef } from 'react';
+import Header from './components/Header';
+import ChatBubble from './components/ChatBubble';
+import InputArea from './components/InputArea';
+import { Message, Sender, Scenarios, SupportedLanguage, LanguageConfig } from './types';
+import { chatWithGemini, LANGUAGE_CONFIGS, resetSession, getApiUrl } from './services/geminiService';
+import { BookOpen, Coffee, Plane, Sparkles, AlertCircle, Globe2, ChevronRight, X, Terminal, ShieldAlert, Save, RotateCcw } from 'lucide-react';
 
-interface ChatBubbleProps {
-  message: Message;
-  languageConfig?: LanguageConfig;
-}
+const SCENARIO_OPTIONS = [
+  { id: Scenarios.INTRO, icon: Sparkles, label: 'Basics', desc: 'Start from scratch' },
+  { id: Scenarios.CAFE, icon: Coffee, label: 'At a Café', desc: 'Order food & drinks' },
+  { id: Scenarios.TRAVEL, icon: Plane, label: 'Travel', desc: 'Ask for directions' },
+  { id: Scenarios.HOBBIES, icon: BookOpen, label: 'Hobbies', desc: 'Discussing Hobbies' },
+];
 
-const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
-  const isUser = message.sender === Sender.USER;
-  const [showTranscript, setShowTranscript] = useState(false);
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const hasAutoPlayedRef = useRef(false);
-
-  const audioCacheRef = useRef<Uint8Array | null>(null);
+// Settings Modal Component
+const SettingsModal = ({ onClose }: { onClose: () => void }) => {
+  const [apiUrl, setApiUrl] = useState('');
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    return () => {
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
-    };
+    const stored = localStorage.getItem('custom_api_url');
+    if (stored) setApiUrl(stored);
   }, []);
 
-  const handleSpeak = async (text: string) => {
-    if (isAudioLoading) return;
-
-    if (isPlaying && audioContextRef.current) {
-      try {
-        await audioContextRef.current.close();
-      } catch (e) {
-        console.warn("Error closing context", e);
-      }
-      audioContextRef.current = null;
-      setIsPlaying(false);
-      return;
+  const handleSave = () => {
+    if (apiUrl.trim()) {
+      localStorage.setItem('custom_api_url', apiUrl.trim());
+    } else {
+      localStorage.removeItem('custom_api_url');
     }
-
-    setIsAudioLoading(true);
-
-    try {
-      let pcmData: Uint8Array;
-
-      if (audioCacheRef.current) {
-        pcmData = audioCacheRef.current;
-      } else {
-        pcmData = await generateSpeech(text);
-        audioCacheRef.current = pcmData;
-      }
-
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioContextClass({ sampleRate: 24000 });
-
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
-
-      audioContextRef.current = ctx;
-
-      const dataInt16 = new Int16Array(pcmData.buffer);
-      const float32 = new Float32Array(dataInt16.length);
-      for (let i = 0; i < dataInt16.length; i++) {
-        float32[i] = dataInt16[i] / 32768;
-      }
-
-      const audioBuffer = ctx.createBuffer(1, float32.length, 24000);
-      audioBuffer.getChannelData(0).set(float32);
-
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-
-      source.onended = () => {
-        setIsPlaying(false);
-      };
-
-      source.start(0);
-      setIsPlaying(true);
-
-    } catch (error) {
-      console.error("Failed to play audio:", error);
-    } finally {
-      setIsAudioLoading(false);
-    }
+    setSaved(true);
+    setTimeout(() => {
+      setSaved(false);
+      onClose();
+      window.location.reload(); // Reload to apply changes
+    }, 800);
   };
 
-  useEffect(() => {
-    if (!isUser && !message.isLoading && message.tutorResponse?.targetText && !hasAutoPlayedRef.current) {
-      hasAutoPlayedRef.current = true;
-      setTimeout(() => {
-        handleSpeak(message.tutorResponse?.targetText || '');
-      }, 100);
-    }
-  }, [isUser, message.isLoading, message.tutorResponse]);
+  const handleReset = () => {
+    localStorage.removeItem('custom_api_url');
+    setApiUrl('');
+    setSaved(true);
+    setTimeout(() => {
+      setSaved(false);
+      onClose();
+      window.location.reload();
+    }, 800);
+  };
 
-
-  if (isUser) {
-    return (
-      <div className="flex justify-end mb-4 animate-fade-in">
-        <div className="max-w-[85%] md:max-w-[70%]">
-          <div className="bg-blue-600 text-white px-5 py-3 rounded-2xl rounded-br-none shadow-sm">
-            <p className="text-base leading-relaxed">{message.text}</p>
-          </div>
-          <div className="text-right text-[10px] text-slate-400 mt-1 mr-1 font-medium">
-            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const { correction, tutorResponse, isLoading } = message;
-  const tutorName = languageConfig?.tutorName || "Tutor";
-  const tutorInitial = tutorName.charAt(0);
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-start mb-4 animate-fade-in">
-        <div className="flex items-end space-x-2 max-w-[85%]">
-          <div className="w-6 h-6 rounded-full bg-slate-200 flex-shrink-0 flex items-center justify-center mb-1">
-            <span className="text-xs font-bold text-slate-500">{tutorInitial}</span>
-          </div>
-          <div className="bg-white border border-slate-100 px-4 py-3 rounded-2xl rounded-bl-none shadow-sm flex items-center space-x-2">
-            <div className="flex space-x-1 h-3 items-center">
-              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-0"></div>
-              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-150"></div>
-              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-300"></div>
-            </div>
-            <span className="text-xs text-slate-400 font-medium">{message.text || "Thinking..."}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const currentEffectiveUrl = getApiUrl('');
 
   return (
-    <div className="flex justify-start mb-6 animate-fade-in w-full">
-      <div className="flex flex-col w-full max-w-full sm:max-w-[90%]">
-
-        {/* Avatar Header */}
-        <div className="flex items-center space-x-2 mb-1 pl-1">
-          <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center border border-blue-100 shadow-sm">
-            <span className="font-handwriting font-bold text-blue-600 text-xs">{tutorInitial}</span>
-          </div>
-          <span className="text-xs font-bold text-slate-500">{tutorName}</span>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+        <div className="bg-slate-50 px-6 py-4 flex items-center justify-between border-b border-slate-100">
+          <h3 className="text-lg font-bold text-slate-800">Settings</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-
-        {/* Correction Panel - More Compact */}
-        {correction && correction.hasMistake && (
-          <div className="mb-2 ml-2 bg-orange-50 border-l-2 border-orange-400 p-3 rounded-r-lg shadow-sm max-w-[95%]">
-            <div className="flex items-start space-x-2">
-              <Sparkles className="w-4 h-4 text-orange-500 mt-0.5 flex-shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-slate-700 text-sm leading-snug">
-                  <span className="font-medium text-red-500 line-through mr-1 opacity-70">{message.text}</span>
-                  <span className="text-green-600 font-medium break-words">{correction.correctedText}</span>
-                </p>
-                <p className="text-xs text-slate-500 mt-1 italic">
-                  {correction.explanation}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Main Bubble */}
-        <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-sm shadow-sm overflow-hidden transition-all duration-300">
-
-          <div className="p-4">
-            {/* Top Controls: Play & Toggle */}
-            <div className="flex items-center justify-between mb-3">
-              <button
-                onClick={() => handleSpeak(tutorResponse?.targetText || '')}
-                disabled={isAudioLoading}
-                className={`flex items-center space-x-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${isPlaying
-                    ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-200'
-                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
-                  }`}
-              >
-                {isAudioLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : isPlaying ? (
-                  <StopCircle className="w-4 h-4 fill-current" />
-                ) : (
-                  <Volume2 className="w-4 h-4" />
-                )}
-                <span>{isPlaying ? "Stop" : "Play Audio"}</span>
-              </button>
-
-              <button
-                onClick={() => setShowTranscript(!showTranscript)}
-                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
-                title={showTranscript ? "Hide Text" : "Show Text"}
-              >
-                {showTranscript ? <ChevronUp className="w-5 h-5" /> : <Languages className="w-5 h-5" />}
-              </button>
-            </div>
-
-            {/* Content Area */}
-            <div className={`transition-all duration-500 ease-in-out ${showTranscript ? 'opacity-100' : 'opacity-80'}`}>
-
-              {/* Target Text (Always visible if transcript shown, or if specific logic requires. 
-                   Previously it was hidden. Let's keep the 'reveal' logic but make it nicer.) */}
-
-              {!showTranscript ? (
-                <div className="text-center py-4 cursor-pointer" onClick={() => setShowTranscript(true)}>
-                  <p className="text-sm text-slate-400 font-medium italic flex items-center justify-center">
-                    <Eye className="w-4 h-4 mr-2" /> Tap to reveal transcript
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4 animate-fade-in">
-                  {/* Main Language Text */}
-                  <div>
-                    <p className="text-xl sm:text-2xl font-medium text-slate-900 leading-relaxed tracking-wide">
-                      {tutorResponse?.targetText}
-                    </p>
-                  </div>
-
-                  {/* Translations */}
-                  <div className="pt-3 border-t border-dashed border-slate-200 space-y-3">
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">English</span>
-                      <p className="text-slate-600 text-sm leading-relaxed">
-                        {tutorResponse?.english}
-                      </p>
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-0.5">Chinese / 中文</span>
-                      <p className="text-slate-600 text-sm leading-relaxed">
-                        {tutorResponse?.chinese}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+        <div className="p-6">
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-slate-700 mb-2">Backend API URL</label>
+            <p className="text-xs text-slate-500 mb-3">
+              If automatic configuration fails, paste your Render URL here (e.g., <code>https://your-app.onrender.com</code>).
+            </p>
+            <input
+              type="text"
+              value={apiUrl}
+              onChange={(e) => setApiUrl(e.target.value)}
+              placeholder="https://..."
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+            />
           </div>
 
-          {/* Footer Status */}
-          {showTranscript && (
-            <div className="bg-slate-50 px-4 py-2 border-t border-slate-100 flex justify-center" onClick={() => setShowTranscript(false)}>
-              <button className="text-xs text-slate-400 hover:text-slate-600 font-medium flex items-center">
-                <ChevronDown className="w-3 h-3 mr-1" /> Hide Transcript
-              </button>
-            </div>
-          )}
+          <div className="bg-slate-100 rounded p-3 mb-4 text-xs text-slate-500 break-all">
+            <strong>Current Active URL:</strong><br />
+            {currentEffectiveUrl || "Relative (Proxy)"}
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleSave}
+              className={`flex-1 py-2 px-4 rounded-lg font-medium flex items-center justify-center transition-all ${saved ? 'bg-green-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+            >
+              {saved ? 'Saved!' : <><Save className="w-4 h-4 mr-2" /> Save & Reload</>}
+            </button>
+            <button
+              onClick={handleReset}
+              className="py-2 px-4 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg font-medium flex items-center"
+              title="Reset to Default"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
-export default ChatBubble;
+// Simple Error Modal Component
+const ErrorModal = ({ message, debugInfo, onClose, onOpenSettings }: { message: string; debugInfo?: string; onClose: () => void; onOpenSettings: () => void }) => {
+  const isMixedContentError = debugInfo?.includes("Mixed Content") || debugInfo?.includes("was loaded over HTTPS, but requested an insecure resource");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-red-100">
+        <div className="bg-red-50 px-6 py-4 flex items-center justify-between border-b border-red-100">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-6 h-6 text-red-600" />
+            <h3 className="text-lg font-bold text-red-800">Connection Issue</h3>
+          </div>
+          <button onClick={onClose} className="text-red-400 hover:text-red-700 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-6 max-h-[70vh] overflow-y-auto">
+          <p className="text-slate-600 leading-relaxed mb-4 font-medium">{message}</p>
+
+          {isMixedContentError && (
+            <div className="mb-4 bg-orange-50 border border-orange-200 rounded-lg p-4">
+              <div className="flex items-start space-x-3">
+                <ShieldAlert className="w-6 h-6 text-orange-600 flex-shrink-0 mt-1" />
+                <div>
+                  <h4 className="font-bold text-orange-800 text-sm mb-1">Security Block Detected (Mixed Content)</h4>
+                  <p className="text-sm text-orange-700 mb-2">
+                    Your frontend is secure (HTTPS) but your backend is insecure (HTTP).
+                  </p>
+                  <div className="text-xs bg-white p-2 rounded border border-orange-200 text-slate-600">
+                    <strong>Fix:</strong> Deploy backend to Render (Automatic HTTPS) or use Ngrok.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {debugInfo && (
+            <div className="bg-slate-900 rounded-lg p-4 overflow-hidden">
+              <div className="flex items-center space-x-2 text-slate-400 mb-2 border-b border-slate-700 pb-2">
+                <Terminal className="w-4 h-4" />
+                <span className="text-xs font-mono uppercase tracking-wider">Debug Information</span>
+              </div>
+              <pre className="text-xs font-mono text-green-400 whitespace-pre-wrap break-all">
+                {debugInfo}
+              </pre>
+            </div>
+          )}
+        </div>
+        <div className="px-6 py-4 bg-slate-50 flex justify-between">
+          <button
+            onClick={() => { onClose(); onOpenSettings(); }}
+            className="text-sm text-blue-600 hover:underline font-medium"
+          >
+            Configure Settings
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-white border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-100 transition-colors shadow-sm"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+function App() {
+  const [selectedLanguage, setSelectedLanguage] = useState<SupportedLanguage | null>(null);
+  const [currentConfig, setCurrentConfig] = useState<LanguageConfig | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isTyping, setIsTyping] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
+  const [loadingText, setLoadingText] = useState("Tutor is thinking...");
+  const [showSettings, setShowSettings] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping]);
+
+  useEffect(() => {
+    let interval: any;
+    if (isTyping && currentConfig) {
+      let seconds = 0;
+      setLoadingText(`${currentConfig.tutorName} is thinking...`);
+      interval = setInterval(() => {
+        seconds++;
+        if (seconds === 2) setLoadingText("Designing the perfect phrase...");
+        if (seconds === 5) setLoadingText(`Connecting to ${currentConfig.name}...`);
+        if (seconds === 10) setLoadingText(`Waiting for server response...`);
+      }, 1000);
+    } else {
+      setLoadingText("");
+    }
+    return () => clearInterval(interval);
+  }, [isTyping, currentConfig]);
+
+  const handleLanguageSelect = (lang: SupportedLanguage) => {
+    setSelectedLanguage(lang);
+    setCurrentConfig(LANGUAGE_CONFIGS[lang]);
+    setHasStarted(false);
+    setMessages([]);
+    setErrorMsg(null);
+    setDebugInfo(null);
+    resetSession(); // New session ID for new language
+  };
+
+  const handleBackToSelection = () => {
+    setSelectedLanguage(null);
+    setCurrentConfig(null);
+    setHasStarted(false);
+    setMessages([]);
+  };
+
+  const startScenario = async (scenario: Scenarios) => {
+    if (!selectedLanguage || !currentConfig) return;
+
+    setHasStarted(true);
+    setMessages([]);
+    setErrorMsg(null);
+    setDebugInfo(null);
+    setIsTyping(true);
+    resetSession(); // New session ID for new scenario
+
+    try {
+      // Pass empty message + scenario to trigger start
+      const result = await chatWithGemini('', selectedLanguage, scenario);
+
+      const tutorMsg: Message = {
+        id: Date.now().toString(),
+        sender: Sender.TUTOR,
+        text: '',
+        tutorResponse: result.response,
+        correction: result.correction,
+        timestamp: Date.now()
+      };
+      setMessages([tutorMsg]);
+    } catch (error: any) {
+      handleError(error);
+      setHasStarted(false);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleSendMessage = async (text: string) => {
+    if (!currentConfig || !selectedLanguage) return;
+    setErrorMsg(null);
+    setDebugInfo(null);
+
+    // 1. Add User Message to UI
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      sender: Sender.USER,
+      text: text,
+      timestamp: Date.now()
+    };
+    setMessages(prev => [...prev, userMsg]);
+    setIsTyping(true);
+
+    try {
+      // 2. Call Stateful Backend (Just send text)
+      const result = await chatWithGemini(text, selectedLanguage);
+
+      const tutorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: Sender.TUTOR,
+        text: '',
+        tutorResponse: result.response,
+        correction: result.correction,
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, tutorMsg]);
+    } catch (error: any) {
+      handleError(error);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  const handleError = (error: any) => {
+    console.error("Chat Error", error);
+    let userFriendlyMsg = `Couldn't connect to ${currentConfig?.tutorName}.`;
+    let isMixedContent = false;
+
+    if (error.message.includes("Request timed out")) {
+      userFriendlyMsg = "The server took too long to respond. It might be waking up.";
+    } else if (error.message.includes("Failed to fetch")) {
+      userFriendlyMsg = "Unable to reach the server. Please check connection.";
+      if (window.location.protocol === 'https:' && getApiUrl('').startsWith('http:')) {
+        isMixedContent = true;
+      }
+    }
+
+    const configuredUrl = getApiUrl('');
+    const displayUrl = configuredUrl || "Not set (using relative /api)";
+
+    let debugDetails = `Configured Backend URL:\n${displayUrl}\n\nRaw Error:\n${error.message}`;
+    if (isMixedContent) {
+      debugDetails += "\n\nPossible Cause: Mixed Content (HTTPS frontend accessing HTTP backend).";
+    }
+
+    setDebugInfo(debugDetails);
+    setErrorMsg(userFriendlyMsg);
+  };
+
+  const handleReset = () => {
+    setHasStarted(false);
+    setMessages([]);
+    setErrorMsg(null);
+    setDebugInfo(null);
+  };
+
+  // --- RENDER: LANGUAGE SELECTION SCREEN ---
+  if (!selectedLanguage || !currentConfig) {
+    return (
+      <div className="flex flex-col h-[100dvh] bg-slate-50 font-sans relative">
+        <Header
+          onReset={() => { }}
+          onSettings={() => setShowSettings(true)}
+        />
+        <main className="flex-1 overflow-y-auto p-4">
+          <div className="max-w-4xl w-full mx-auto animate-fade-in min-h-full flex flex-col pb-8">
+            <div className="text-center mb-12 mt-8 md:mt-16">
+              <div className="inline-flex items-center justify-center p-4 bg-white rounded-full shadow-xl mb-6">
+                <Globe2 className="w-12 h-12 text-blue-600" />
+              </div>
+              <h2 className="text-4xl font-bold text-slate-800 mb-4">Choose Your Language</h2>
+              <p className="text-lg text-slate-500 max-w-xl mx-auto">
+                Select a language to start your immersive learning journey with an AI friend.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pb-12">
+              {(Object.values(LANGUAGE_CONFIGS) as LanguageConfig[]).map((config) => (
+                <button
+                  key={config.id}
+                  onClick={() => handleLanguageSelect(config.id)}
+                  className="group bg-white hover:bg-blue-600 hover:text-white border border-slate-200 rounded-2xl p-6 transition-all duration-300 shadow-sm hover:shadow-xl hover:-translate-y-1 flex flex-col items-center text-center"
+                >
+                  <div className="text-6xl mb-4 transition-transform group-hover:scale-110">
+                    {config.flag}
+                  </div>
+                  <h3 className="text-xl font-bold mb-1">{config.name}</h3>
+                  <p className="text-sm text-slate-400 group-hover:text-blue-200 font-medium mb-4">
+                    Tutor: {config.tutorName}
+                  </p>
+                  <div className="mt-auto opacity-0 group-hover:opacity-100 transition-opacity flex items-center text-sm font-semibold bg-white/20 py-1 px-3 rounded-full">
+                    Start Learning <ChevronRight className="w-4 h-4 ml-1" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </main>
+        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+        {errorMsg && (
+          <ErrorModal
+            message={errorMsg}
+            debugInfo={debugInfo || undefined}
+            onClose={() => setErrorMsg(null)}
+            onOpenSettings={() => { setErrorMsg(null); setShowSettings(true); }}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // --- RENDER: CHAT INTERFACE ---
+  return (
+    <div className="flex flex-col h-[100dvh] bg-slate-50 font-sans relative">
+      <Header
+        onReset={handleReset}
+        onBack={handleBackToSelection}
+        onSettings={() => setShowSettings(true)}
+        config={currentConfig}
+      />
+
+      {/* Reduced padding from p-4 to p-3 sm:p-4 for better mobile width */}
+      <main className="flex-1 overflow-y-auto p-3 sm:p-4 scroll-smooth">
+        <div className="max-w-3xl mx-auto min-h-full flex flex-col">
+
+          {!hasStarted && (
+            <div className="flex-1 flex flex-col items-center justify-center space-y-8 py-12 animate-fade-in">
+              <div className="text-center space-y-4">
+                <div className="w-24 h-24 bg-white rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-blue-50 mb-6">
+                  <span className="text-6xl">{currentConfig.flag}</span>
+                </div>
+                <h2 className="text-3xl font-bold text-slate-800">Bienvenue!</h2>
+                <p className="text-slate-500 max-w-md mx-auto">
+                  I am {currentConfig.tutorName}. Choose a scenario to start our conversation in {currentConfig.name}.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl px-4">
+                {SCENARIO_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    onClick={() => startScenario(option.id)}
+                    className="flex items-center p-4 bg-white border border-slate-200 rounded-xl hover:border-blue-400 hover:shadow-md transition-all group text-left"
+                  >
+                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mr-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                      <option.icon className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-800">{option.label}</h3>
+                      <p className="text-xs text-slate-500">{option.desc}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {hasStarted && (
+            <div className="pb-4">
+              {messages.map((msg) => (
+                <ChatBubble
+                  key={msg.id}
+                  message={msg}
+                  languageConfig={currentConfig}
+                />
+              ))}
+
+              {isTyping && (
+                <div className="flex justify-start mb-6 animate-fade-in">
+                  <div className="flex items-end space-x-2 max-w-[85%]">
+                    <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center mb-1">
+                      <span className="text-xs font-bold text-slate-500">{currentConfig.tutorName.charAt(0)}</span>
+                    </div>
+                    <div className="bg-white border border-slate-200 px-4 py-3 rounded-2xl rounded-bl-none shadow-sm flex items-center space-x-2">
+                      <div className="flex space-x-1 h-3 items-center">
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-0"></div>
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-150"></div>
+                        <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce delay-300"></div>
+                      </div>
+                      <span className="text-xs text-slate-400 font-medium animate-pulse">{loadingText}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+      </main>
+
+      {hasStarted && (
+        <InputArea
+          onSend={handleSendMessage}
+          disabled={isTyping}
+          tutorName={currentConfig.tutorName}
+          languageCode={currentConfig.speechCode}
+        />
+      )}
+
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+
+      {errorMsg && (
+        <ErrorModal
+          message={errorMsg}
+          debugInfo={debugInfo || undefined}
+          onClose={() => setErrorMsg(null)}
+          onOpenSettings={() => { setErrorMsg(null); setShowSettings(true); }}
+        />
+      )}
+    </div>
+  );
+}
+
+export default App;

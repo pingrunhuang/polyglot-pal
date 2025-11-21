@@ -68,7 +68,17 @@ export const chatWithGemini = async (
   });
 
   if (!response.ok) {
-    throw new Error(`Backend Error: ${response.statusText}`);
+    // Try to parse the JSON error message from the backend
+    let errorMessage = response.statusText;
+    try {
+      const errorData = await response.json();
+      if (errorData.error) {
+        errorMessage = errorData.error;
+      }
+    } catch (e) {
+      // If parsing fails, stick with statusText
+    }
+    throw new Error(`Backend Error: ${errorMessage}`);
   }
 
   const data = await response.json();
@@ -87,7 +97,12 @@ export const generateSpeech = async (text: string): Promise<Uint8Array> => {
     });
 
     if (!response.ok) {
-      throw new Error("TTS Backend Error");
+      let errorMessage = response.statusText;
+      try {
+        const errorData = await response.json();
+        if (errorData.error) errorMessage = errorData.error;
+      } catch (e) { }
+      throw new Error(`TTS Backend Error: ${errorMessage}`);
     }
 
     const data = await response.json();

@@ -19,12 +19,13 @@ app.use(express.json());
 const apiKey = process.env.API_KEY;
 const baseUrl = process.env.GEMINI_BASE_URL;
 
+// Initialize SDK options conditionally
+const clientOptions = baseUrl ? { baseUrl } : {};
+
 // Initialize SDK
 const ai = new GoogleGenAI({
     apiKey: apiKey || 'dummy_key_for_build_process',
-}, {
-    baseUrl: baseUrl
-});
+}, clientOptions);
 
 // --- STATEFUL STORAGE (In-Memory) ---
 // Stores active chat sessions: sessionId -> Chat object
@@ -159,6 +160,8 @@ app.post('/api/chat', async (req, res) => {
         if (req.body.sessionId) {
             chatSessions.delete(req.body.sessionId);
         }
+
+        // Send the specific error message back to client
         res.status(500).json({ error: error.message });
     }
 });

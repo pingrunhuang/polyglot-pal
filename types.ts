@@ -3,7 +3,7 @@ export enum Sender {
   TUTOR = 'TUTOR'
 }
 
-export type SupportedLanguage = 'French' | 'English' | 'Spanish' | 'German' | 'Russian' | 'Japanese';
+export type SupportedLanguage = 'French' | 'English' | 'Spanish' | 'German' | 'Russian' | 'Japanese' | 'Cantonese';
 
 export interface LanguageConfig {
   id: SupportedLanguage;

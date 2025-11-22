@@ -40,6 +40,7 @@ const LANGUAGE_CONFIGS = {
     German: { name: 'German', tutorName: 'Hans', voiceName: 'Fenrir' },
     Russian: { name: 'Russian', tutorName: 'Dimitri', voiceName: 'Fenrir' },
     Japanese: { name: 'Japanese', tutorName: 'Yuki', voiceName: 'Puck' },
+    Cantonese: { name: 'Cantonese', tutorName: 'Ka-ming', voiceName: 'Fenrir' },
 };
 
 const getSystemInstruction = (langConfig) => `

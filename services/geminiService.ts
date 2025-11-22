@@ -7,6 +7,7 @@ export const LANGUAGE_CONFIGS: Record<SupportedLanguage, LanguageConfig> = {
   German: { id: 'German', name: 'German', flag: '🇩🇪', tutorName: 'Hans', voiceName: 'Fenrir', speechCode: 'de-DE', greeting: 'Hallo! Wie geht es dir?' },
   Russian: { id: 'Russian', name: 'Russian', flag: '🇷🇺', tutorName: 'Dimitri', voiceName: 'Fenrir', speechCode: 'ru-RU', greeting: 'Привет! Как дела?' },
   Japanese: { id: 'Japanese', name: 'Japanese', flag: '🇯🇵', tutorName: 'Yuki', voiceName: 'Puck', speechCode: 'ja-JP', greeting: 'こんにちは！元気ですか？' },
+  Cantonese: { id: 'Cantonese', name: 'Cantonese', flag: '🇭🇰', tutorName: 'Ka-ming', voiceName: 'Fenrir', speechCode: 'zh-HK', greeting: '你好！食咗飯未呀？' },
 };
 
 let currentVoiceName = 'Fenrir';

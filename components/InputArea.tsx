@@ -18,6 +18,7 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const transcriptRef = useRef('');
+  const isHoldingRef = useRef(false);
 
   const handleSend = () => {
     if (text.trim() && !disabled) {
@@ -37,8 +38,17 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
     }
   };
 
-  const startRecording = async () => {
+  const startRecording = async (e: React.MouseEvent | React.TouchEvent) => {
+    if (disabled) return;
+    // Prevent ghost clicks or multi-touch issues
+    if (isHoldingRef.current) return;
+
+    // Prevent context menu on mobile long press
+    e.preventDefault();
+
     try {
+      isHoldingRef.current = true;
+
       // 1. Start Audio Capture (MediaRecorder)
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
@@ -58,7 +68,7 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
       if (SpeechRecognition) {
         const recognition = new SpeechRecognition();
         recognition.lang = languageCode;
-        recognition.continuous = true; // Keep listening until we manually stop
+        recognition.continuous = true;
         recognition.interimResults = true;
 
         recognition.onresult = (event: any) => {
@@ -77,8 +87,12 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
           const currentText = finalTranscript || interimTranscript;
           if (currentText) {
             setText(currentText);
-            transcriptRef.current = currentText; // Store in ref for access during stop
+            transcriptRef.current = currentText;
           }
+        };
+
+        recognition.onerror = (event: any) => {
+          console.error("Speech recognition error", event.error);
         };
 
         recognitionRef.current = recognition;
@@ -89,53 +103,54 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
 
     } catch (err) {
       console.error("Error accessing microphone:", err);
+      isHoldingRef.current = false;
       alert("Could not access microphone. Please check permissions.");
     }
   };
 
-  const stopRecordingAndSend = () => {
-    if (!mediaRecorderRef.current) return;
+  const stopRecordingAndSend = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault(); // Prevent default to ensure event fires clean
+    if (!isHoldingRef.current) return;
+    isHoldingRef.current = false;
 
-    setIsRecording(false);
-
-    // Stop Speech Recognition
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+    if (!mediaRecorderRef.current) {
+      setIsRecording(false);
+      return;
     }
 
-    // Stop Media Recorder
-    mediaRecorderRef.current.onstop = () => {
-      // Create Audio Blob URL
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const finalTranscript = transcriptRef.current;
+    // Small delay to ensure last chunk is captured if click was super fast
+    setTimeout(() => {
+      setIsRecording(false);
 
-      // Stop all tracks to release mic
-      mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
-
-      // AUTO SEND
-      if (finalTranscript.trim()) {
-        onSend(finalTranscript.trim(), audioUrl);
-        setText('');
-        transcriptRef.current = '';
-      } else {
-        // If no text was captured but audio was, we technically could send audio, 
-        // but our backend expects text for logic. For now, we skip.
-        // Fallback: If no transcript but we have audio, maybe prompt user? 
-        // Keeping it simple: No transcript = no send.
-        console.warn("No speech detected.");
+      // Stop Speech Recognition
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
       }
-    };
 
-    mediaRecorderRef.current.stop();
-  };
+      // Stop Media Recorder
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.onstop = () => {
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const finalTranscript = transcriptRef.current;
 
-  const toggleRecording = () => {
-    if (isRecording) {
-      stopRecordingAndSend();
-    } else {
-      startRecording();
-    }
+          // Stop all tracks
+          mediaRecorderRef.current?.stream.getTracks().forEach(track => track.stop());
+
+          // AUTO SEND logic
+          if (finalTranscript.trim()) {
+            onSend(finalTranscript.trim(), audioUrl);
+            setText('');
+            transcriptRef.current = '';
+          } else {
+            // Optional: If only audio captured but no text, you might want to transcribe it via backend whisper
+            // For now, we stick to the existing logic: No text = no send
+            console.warn("No speech detected.");
+          }
+        };
+        mediaRecorderRef.current.stop();
+      }
+    }, 150);
   };
 
   useEffect(() => {
@@ -150,10 +165,10 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
       <div className="max-w-3xl mx-auto relative">
 
         {isRecording && (
-          <div className="absolute -top-10 left-0 right-0 flex justify-center">
+          <div className="absolute -top-10 left-0 right-0 flex justify-center pointer-events-none">
             <div className="bg-red-50 text-red-600 px-4 py-1 rounded-full text-xs font-bold flex items-center shadow-sm animate-pulse border border-red-100">
               <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
-              Recording... Tap to Send
+              Recording... Release to Send
             </div>
           </div>
         )}
@@ -161,15 +176,19 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
         <div className={`flex items-end space-x-2 bg-slate-50 border rounded-2xl p-2 transition-all shadow-sm ${isRecording ? 'border-red-300 ring-1 ring-red-100 bg-red-50/30' : 'border-slate-200 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500'}`}>
 
           <button
-            onClick={toggleRecording}
+            onMouseDown={startRecording}
+            onMouseUp={stopRecordingAndSend}
+            onMouseLeave={stopRecordingAndSend} // Handle drag out
+            onTouchStart={startRecording}
+            onTouchEnd={stopRecordingAndSend}
             disabled={disabled}
-            className={`p-3 rounded-xl transition-all flex-shrink-0 ${isRecording
-                ? 'bg-red-500 text-white shadow-md hover:bg-red-600 transform scale-105'
+            className={`p-3 rounded-xl transition-all flex-shrink-0 select-none touch-none ${isRecording
+                ? 'bg-red-500 text-white shadow-md scale-110 ring-4 ring-red-200'
                 : 'text-slate-400 hover:bg-white hover:text-blue-600'
-              }`}
-            title={isRecording ? "Stop & Send" : "Record Voice Message"}
+              } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
+            title="Hold to Record, Release to Send"
           >
-            {isRecording ? <Square className="w-5 h-5 fill-current" /> : <Mic className="w-5 h-5" />}
+            <Mic className={`w-5 h-5 ${isRecording ? 'animate-pulse' : ''}`} />
           </button>
 
           <div className="flex-1 relative">

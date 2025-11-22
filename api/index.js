@@ -2,6 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type, Modality } from "@google/genai";
+// NOTE: If using Doubao/Volcengine, you might normally import their SDK here.
+// For this implementation, we will use standard fetch to keep dependencies minimal
+// until you provide specific SDK requirements.
 
 dotenv.config();
 
@@ -28,7 +31,6 @@ const ai = new GoogleGenAI({
 }, clientOptions);
 
 // --- STATEFUL STORAGE (In-Memory) ---
-// Stores active chat sessions: sessionId -> Chat object
 const chatSessions = new Map();
 
 const LANGUAGE_CONFIGS = {
@@ -65,7 +67,6 @@ You MUST respond using a valid JSON object with the following schema:
 }
 `;
 
-// Helper to parse JSON cleanly
 const parseGeminiJson = (text) => {
     try {
         return JSON.parse(text);
@@ -84,8 +85,100 @@ app.get('/api', (req, res) => {
     res.send("Polyglot Pal API is running (Stateful Mode)");
 });
 
-// Stateful Chat Endpoint
+app.get('/', (req, res) => {
+    res.send("Server is Healthy");
+});
+
+// Aliases for compatibility
+app.post('/api/chat/start', (req, res) => {
+    // Forward to main chat logic
+    req.url = '/api/chat';
+    app.handle(req, res);
+});
+
+// --- TTS PROVIDER LOGIC ---
+
+// 1. Default Gemini TTS
+const generateGeminiTTS = async (text, voiceName) => {
+    console.log("Using Provider: Gemini TTS");
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text: text }] }],
+        config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: voiceName || 'Fenrir' },
+                },
+            },
+        },
+    });
+
+    let base64Audio = null;
+    if (response.candidates &&
+        response.candidates.length > 0 &&
+        response.candidates[0].content &&
+        response.candidates[0].content.parts &&
+        response.candidates[0].content.parts.length > 0 &&
+        response.candidates[0].content.parts[0].inlineData) {
+        base64Audio = response.candidates[0].content.parts[0].inlineData.data;
+    }
+    return base64Audio;
+};
+
+// 2. Doubao (ByteDance) TTS Placeholder
+// Ensure you set DOUBAO_API_KEY, DOUBAO_APP_ID, etc. in your .env
+const generateDoubaoTTS = async (text, voiceName) => {
+    console.log("Using Provider: Doubao TTS");
+
+    const apiKey = process.env.DOUBAO_API_KEY;
+    const appid = process.env.DOUBAO_APP_ID;
+    const token = process.env.DOUBAO_TOKEN; // or however they authenticate
+
+    if (!apiKey && !token) {
+        throw new Error("Doubao configuration missing (DOUBAO_API_KEY/TOKEN)");
+    }
+
+    // Mock implementation structure for Volcengine/Doubao API
+    // Replace this URL and Body with the actual Volcengine API specs
+    const url = "https://openspeech.bytedance.com/api/v1/tts";
+
+    const response = await fetch(url, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${token || apiKey}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            app: { appid: appid },
+            user: { uid: "user_1" },
+            audio: {
+                voice_type: "BV001_streaming", // Example Doubao Voice ID
+                encoding: "mp3",
+                speed_ratio: 1.0,
+            },
+            request: {
+                text: text,
+                operation: "query",
+            }
+        })
+    });
+
+    if (!response.ok) {
+        const err = await response.text();
+        throw new Error(`Doubao TTS API Error: ${err}`);
+    }
+
+    const data = await response.json();
+    return data.data; // Assuming API returns base64 in 'data' field
+};
+
+
+// Main Chat Endpoint
 app.post('/api/chat', async (req, res) => {
+    // Request Logger
+    console.log(`Incoming Request: ${req.method} ${req.originalUrl}`);
+
     try {
         const { message, sessionId, language, scenario } = req.body;
 
@@ -103,7 +196,6 @@ app.post('/api/chat', async (req, res) => {
         let chat = chatSessions.get(sessionId);
         let isNewSession = false;
 
-        // If no session exists OR a new scenario is requested, create a new chat
         if (!chat || scenario) {
             isNewSession = true;
             const systemInstruction = getSystemInstruction(config);
@@ -141,7 +233,6 @@ app.post('/api/chat', async (req, res) => {
             chatSessions.set(sessionId, chat);
         }
 
-        // Determine Prompt
         let prompt = message;
         if (isNewSession && scenario) {
             prompt = `The current topic is: ${scenario}. Start the conversation by introducing yourself as ${config.tutorName} and asking a relevant question in ${config.name}.`;
@@ -156,48 +247,41 @@ app.post('/api/chat', async (req, res) => {
 
     } catch (error) {
         console.error("Chat Error:", error);
-        // If session is invalid/expired on Google's side, clear it locally
         if (req.body.sessionId) {
             chatSessions.delete(req.body.sessionId);
         }
-
-        // Send the specific error message back to client
         res.status(500).json({ error: error.message });
     }
 });
 
+// Updated TTS Endpoint
 app.post('/api/tts', async (req, res) => {
     try {
         const { text, voiceName } = req.body;
 
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash-preview-tts",
-            contents: [{ parts: [{ text: text }] }],
-            config: {
-                responseModalities: [Modality.AUDIO],
-                speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: voiceName || 'Fenrir' },
-                    },
-                },
-            },
-        });
-
+        // Determine Provider
+        const provider = process.env.TTS_PROVIDER || 'gemini';
         let base64Audio = null;
-        if (response.candidates &&
-            response.candidates.length > 0 &&
-            response.candidates[0].content &&
-            response.candidates[0].content.parts &&
-            response.candidates[0].content.parts.length > 0 &&
-            response.candidates[0].content.parts[0].inlineData) {
-            base64Audio = response.candidates[0].content.parts[0].inlineData.data;
+
+        if (provider === 'doubao') {
+            // Fallback to Gemini if Doubao config is missing but provider is set
+            if (!process.env.DOUBAO_API_KEY && !process.env.DOUBAO_TOKEN) {
+                console.warn("Doubao provider selected but no keys found. Falling back to Gemini.");
+                base64Audio = await generateGeminiTTS(text, voiceName);
+            } else {
+                base64Audio = await generateDoubaoTTS(text, voiceName);
+            }
+        } else {
+            // Default
+            base64Audio = await generateGeminiTTS(text, voiceName);
         }
 
-        if (!base64Audio) throw new Error("No audio data returned");
+        if (!base64Audio) throw new Error("No audio data returned from provider");
         res.json({ audioData: base64Audio });
+
     } catch (error) {
         console.error("TTS Error:", error);
-        res.status(500).json({ error: "Text-to-Speech failed" });
+        res.status(500).json({ error: error.message || "Text-to-Speech failed" });
     }
 });
 

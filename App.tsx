@@ -235,8 +235,6 @@ function App() {
     resetSession(); // New session ID for new scenario
 
     try {
-      // Pass empty message + scenario to trigger start
-      // We wait for the response BEFORE switching the view
       const result = await chatWithGemini('', selectedLanguage, scenario);
 
       const tutorMsg: Message = {
@@ -248,7 +246,7 @@ function App() {
         timestamp: Date.now()
       };
       setMessages([tutorMsg]);
-      setHasStarted(true); // NOW we switch to the chat view
+      setHasStarted(true);
     } catch (error: any) {
       handleError(error);
       setHasStarted(false);
@@ -258,23 +256,25 @@ function App() {
     }
   };
 
-  const handleSendMessage = async (text: string) => {
+  // Updated to accept audioUrl
+  const handleSendMessage = async (text: string, audioUrl?: string) => {
     if (!currentConfig || !selectedLanguage) return;
     setErrorMsg(null);
     setDebugInfo(null);
 
-    // 1. Add User Message to UI
+    // 1. Add User Message to UI (Including audio if present)
     const userMsg: Message = {
       id: Date.now().toString(),
       sender: Sender.USER,
       text: text,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      userAudioUrl: audioUrl // Store recording
     };
     setMessages(prev => [...prev, userMsg]);
     setIsTyping(true);
 
     try {
-      // 2. Call Stateful Backend (Just send text)
+      // 2. Call Stateful Backend (Send text transcript for logic)
       const result = await chatWithGemini(text, selectedLanguage);
 
       const tutorMsg: Message = {

@@ -32,6 +32,7 @@ export interface Message {
   sender: Sender;
   text: string; // Raw text for user, unused for tutor if structured data is present
   timestamp: number;
+  userAudioUrl?: string; // URL to local blob for playback
   // Specific to Tutor responses
   correction?: CorrectionData;
   tutorResponse?: TutorResponseData;

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Message, Sender, LanguageConfig } from '../types';
-import { Volume2, StopCircle, Sparkles, Eye, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Volume2, StopCircle, Sparkles, Eye, Loader2, ChevronDown, ChevronUp, Play, Pause } from 'lucide-react';
 import { generateSpeech } from '../services/geminiService';
 
 interface ChatBubbleProps {
@@ -11,12 +11,18 @@ interface ChatBubbleProps {
 const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
   const isUser = message.sender === Sender.USER;
   const [showTranscript, setShowTranscript] = useState(false);
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Tutor Audio State
+  const [isTutorAudioLoading, setIsTutorAudioLoading] = useState(false);
+  const [isTutorPlaying, setIsTutorPlaying] = useState(false);
+
+  // User Audio State
+  const [isUserPlaying, setIsUserPlaying] = useState(false);
+  const userAudioRef = useRef<HTMLAudioElement | null>(null);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const hasAutoPlayedRef = useRef(false);
-
   const audioCacheRef = useRef<Uint8Array | null>(null);
 
   // Cleanup on unmount
@@ -28,7 +34,30 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
     };
   }, []);
 
-  const stopAudio = async () => {
+  // --- User Audio Logic ---
+  const toggleUserAudio = () => {
+    if (!userAudioRef.current) return;
+
+    if (isUserPlaying) {
+      userAudioRef.current.pause();
+      setIsUserPlaying(false);
+    } else {
+      userAudioRef.current.play();
+      setIsUserPlaying(true);
+    }
+  };
+
+  useEffect(() => {
+    if (message.userAudioUrl && isUser) {
+      const audio = new Audio(message.userAudioUrl);
+      audio.onended = () => setIsUserPlaying(false);
+      userAudioRef.current = audio;
+    }
+  }, [message.userAudioUrl, isUser]);
+
+
+  // --- Tutor Audio Logic ---
+  const stopTutorAudio = async () => {
     try {
       if (sourceRef.current) {
         sourceRef.current.stop();
@@ -41,25 +70,22 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
     } catch (e) {
       // Ignore errors during cleanup
     } finally {
-      setIsPlaying(false);
-      setIsAudioLoading(false);
+      setIsTutorPlaying(false);
+      setIsTutorAudioLoading(false);
     }
   };
 
-  const handleSpeak = async (text: string) => {
-    // If already loading, ignore click
-    if (isAudioLoading) return;
+  const handleSpeakTutor = async (text: string) => {
+    if (isTutorAudioLoading) return;
 
-    // If currently playing, stop it (Toggle behavior)
-    if (isPlaying) {
-      await stopAudio();
+    if (isTutorPlaying) {
+      await stopTutorAudio();
       return;
     }
 
-    setIsAudioLoading(true);
+    setIsTutorAudioLoading(true);
 
     try {
-      // 1. Get PCM Data (Cache or Network)
       let pcmData: Uint8Array;
       if (audioCacheRef.current) {
         pcmData = audioCacheRef.current;
@@ -68,7 +94,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
         audioCacheRef.current = pcmData;
       }
 
-      // 2. Initialize Audio Context
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new AudioContextClass({ sampleRate: 24000 });
 
@@ -77,59 +102,72 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
       }
       audioContextRef.current = ctx;
 
-      // 3. Convert PCM (Int16) to Float32
       const dataInt16 = new Int16Array(pcmData.buffer);
       const float32 = new Float32Array(dataInt16.length);
       for (let i = 0; i < dataInt16.length; i++) {
         float32[i] = dataInt16[i] / 32768;
       }
 
-      // 4. Create Buffer
       const audioBuffer = ctx.createBuffer(1, float32.length, 24000);
       audioBuffer.getChannelData(0).set(float32);
 
-      // 5. Play
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
       sourceRef.current = source;
 
       source.onended = () => {
-        setIsPlaying(false);
+        setIsTutorPlaying(false);
         sourceRef.current = null;
-        // Optional: Close context to save resources, or keep open if frequent plays expected.
-        // Here we keep it simple by relying on isPlaying state.
       };
 
       source.start(0);
-      setIsPlaying(true);
+      setIsTutorPlaying(true);
 
     } catch (error) {
       console.error("Failed to play audio:", error);
-      // Reset state on error
-      setIsPlaying(false);
+      setIsTutorPlaying(false);
     } finally {
-      setIsAudioLoading(false);
+      setIsTutorAudioLoading(false);
     }
   };
 
-  // Auto-play logic
   useEffect(() => {
     if (!isUser && !message.isLoading && message.tutorResponse?.targetText && !hasAutoPlayedRef.current) {
       hasAutoPlayedRef.current = true;
-      // Small delay to ensure UI is ready
       setTimeout(() => {
-        handleSpeak(message.tutorResponse?.targetText || '');
+        handleSpeakTutor(message.tutorResponse?.targetText || '');
       }, 300);
     }
   }, [isUser, message.isLoading, message.tutorResponse]);
 
 
+  // --- Render User Bubble ---
   if (isUser) {
     return (
       <div className="flex justify-end mb-6 animate-fade-in">
         <div className="max-w-[85%] md:max-w-[70%]">
-          <div className="bg-blue-600 text-white px-5 py-3.5 rounded-2xl rounded-br-none shadow-md">
+          <div className="bg-blue-600 text-white px-5 py-3.5 rounded-2xl rounded-br-none shadow-md relative">
+            {message.userAudioUrl && (
+              <div className="flex items-center space-x-3 mb-2 pb-2 border-b border-blue-500/50">
+                <button
+                  onClick={toggleUserAudio}
+                  className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
+                >
+                  {isUserPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
+                </button>
+                <div className="h-6 flex-1 flex items-center space-x-1 opacity-70">
+                  {/* Fake waveform visual */}
+                  {[...Array(12)].map((_, i) => (
+                    <div
+                      key={i}
+                      className={`w-1 bg-white rounded-full transition-all duration-300 ${isUserPlaying ? 'animate-pulse' : ''}`}
+                      style={{ height: `${Math.random() * 12 + 4}px` }}
+                    ></div>
+                  ))}
+                </div>
+              </div>
+            )}
             <p className="text-base leading-relaxed font-medium">{message.text}</p>
           </div>
           <div className="text-right text-[10px] text-slate-400 mt-1 mr-1 font-medium opacity-70">
@@ -140,6 +178,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
     );
   }
 
+  // --- Render Tutor Bubble ---
   const { correction, tutorResponse } = message;
   const tutorName = languageConfig?.tutorName || "Tutor";
   const tutorInitial = tutorName.charAt(0);
@@ -148,7 +187,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
     <div className="flex justify-start mb-8 animate-fade-in w-full group">
       <div className="flex flex-col w-full max-w-full sm:max-w-[92%]">
 
-        {/* Avatar Header */}
         <div className="flex items-center space-x-2 mb-1.5 pl-1">
           <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border border-slate-200 shadow-sm">
             <span className="font-handwriting font-bold text-blue-600 text-sm">{tutorInitial}</span>
@@ -157,7 +195,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
           <span className="text-[10px] text-slate-400 font-medium">• {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
         </div>
 
-        {/* Correction Panel */}
         {correction && correction.hasMistake && (
           <div className="mb-3 ml-2 bg-orange-50 border-l-4 border-orange-400 p-3 rounded-r-xl shadow-sm max-w-[95%]">
             <div className="flex items-start space-x-3">
@@ -175,37 +212,31 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
           </div>
         )}
 
-        {/* Main Bubble */}
         <div className="bg-white border border-slate-200 rounded-3xl rounded-tl-none shadow-sm overflow-hidden">
-
           <div className="p-5">
-
-            {/* Audio Player Header (Reverted Style) */}
             <div className="flex items-center space-x-3 mb-4">
               <button
-                onClick={() => handleSpeak(tutorResponse?.targetText || '')}
-                disabled={isAudioLoading}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-sm ${isPlaying
+                onClick={() => handleSpeakTutor(tutorResponse?.targetText || '')}
+                disabled={isTutorAudioLoading}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-sm ${isTutorPlaying
                     ? 'bg-blue-100 text-blue-600 ring-2 ring-blue-200'
                     : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'
                   }`}
               >
-                {isAudioLoading ? (
+                {isTutorAudioLoading ? (
                   <Loader2 className="w-5 h-5 animate-spin" />
-                ) : isPlaying ? (
+                ) : isTutorPlaying ? (
                   <StopCircle className="w-5 h-5 fill-current" />
                 ) : (
                   <Volume2 className="w-5 h-5" />
                 )}
               </button>
-              <span className="text-sm text-slate-400 font-medium cursor-pointer" onClick={() => handleSpeak(tutorResponse?.targetText || '')}>
-                {isAudioLoading ? "Loading audio..." : isPlaying ? "Listening..." : "Click to replay"}
+              <span className="text-sm text-slate-400 font-medium cursor-pointer" onClick={() => handleSpeakTutor(tutorResponse?.targetText || '')}>
+                {isTutorAudioLoading ? "Loading audio..." : isTutorPlaying ? "Listening..." : "Click to replay"}
               </span>
             </div>
 
-            {/* Text Content */}
             <div className="transition-all duration-300">
-
               {!showTranscript ? (
                 <div
                   className="text-center py-6 cursor-pointer group/reveal bg-slate-50 rounded-xl border border-dashed border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-all"
@@ -218,7 +249,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
                 </div>
               ) : (
                 <div className="animate-fade-in space-y-6">
-                  {/* Target Language (Hero) */}
                   <div>
                     <p className="text-xs font-bold text-blue-600 uppercase tracking-widest mb-2">
                       {languageConfig?.name.toUpperCase()}
@@ -227,10 +257,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
                       {tutorResponse?.targetText}
                     </p>
                   </div>
-
-                  {/* Translations (Boxed Style) */}
                   <div className="space-y-3">
-                    {/* English Box */}
                     <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                         English
@@ -239,8 +266,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
                         {tutorResponse?.english}
                       </p>
                     </div>
-
-                    {/* Chinese Box */}
                     <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                         Chinese
@@ -254,8 +279,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
               )}
             </div>
           </div>
-
-          {/* Footer Toggle */}
           <div
             className="bg-slate-50 border-t border-slate-100 px-4 py-3 flex justify-center cursor-pointer hover:bg-slate-100 transition-colors"
             onClick={() => setShowTranscript(!showTranscript)}

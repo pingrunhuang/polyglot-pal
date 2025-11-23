@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Message, Sender, LanguageConfig } from '../types';
 import { Volume2, StopCircle, Sparkles, Eye, Loader2, ChevronDown, ChevronUp, Play, Pause } from 'lucide-react';
-import { generateSpeech } from '../services/geminiService';
+import { generateSpeech, AudioResponse } from '../services/geminiService';
 
 interface ChatBubbleProps {
   message: Message;
@@ -23,7 +23,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const hasAutoPlayedRef = useRef(false);
-  const audioCacheRef = useRef<Uint8Array | null>(null);
+  const audioCacheRef = useRef<AudioResponse | null>(null);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -86,30 +86,40 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
     setIsTutorAudioLoading(true);
 
     try {
-      let pcmData: Uint8Array;
+      let audioResponse: AudioResponse;
       if (audioCacheRef.current) {
-        pcmData = audioCacheRef.current;
+        audioResponse = audioCacheRef.current;
       } else {
-        pcmData = await generateSpeech(text);
-        audioCacheRef.current = pcmData;
+        audioResponse = await generateSpeech(text);
+        audioCacheRef.current = audioResponse;
       }
 
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioContextClass({ sampleRate: 24000 });
+      const ctx = new AudioContextClass(); // No sampleRate needed for mp3 decode
 
       if (ctx.state === 'suspended') {
         await ctx.resume();
       }
       audioContextRef.current = ctx;
 
-      const dataInt16 = new Int16Array(pcmData.buffer);
-      const float32 = new Float32Array(dataInt16.length);
-      for (let i = 0; i < dataInt16.length; i++) {
-        float32[i] = dataInt16[i] / 32768;
-      }
+      let audioBuffer: AudioBuffer;
 
-      const audioBuffer = ctx.createBuffer(1, float32.length, 24000);
-      audioBuffer.getChannelData(0).set(float32);
+      if (audioResponse.format === 'mp3') {
+        // Standard decoding for MP3 (Edge TTS)
+        // We must copy the buffer because decodeAudioData detaches it
+        const bufferCopy = audioResponse.data.buffer.slice(0) as ArrayBuffer;
+        audioBuffer = await ctx.decodeAudioData(bufferCopy);
+      } else {
+        // Fallback for PCM (Legacy Gemini)
+        const pcmData = audioResponse.data;
+        const dataInt16 = new Int16Array(pcmData.buffer);
+        const float32 = new Float32Array(dataInt16.length);
+        for (let i = 0; i < dataInt16.length; i++) {
+          float32[i] = dataInt16[i] / 32768;
+        }
+        audioBuffer = ctx.createBuffer(1, float32.length, 24000);
+        audioBuffer.getChannelData(0).set(float32);
+      }
 
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;

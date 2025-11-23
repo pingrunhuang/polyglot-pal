@@ -1,15 +1,14 @@
 import React from 'react';
-import { Languages, RefreshCcw, ArrowLeft, Settings } from 'lucide-react';
+import { Languages, RefreshCcw, ArrowLeft } from 'lucide-react';
 import { LanguageConfig } from '../types';
 
 interface HeaderProps {
   onReset: () => void;
   onBack?: () => void;
-  onSettings: () => void;
   config?: LanguageConfig;
 }
 
-const Header: React.FC<HeaderProps> = ({ onReset, onBack, onSettings, config }) => {
+const Header: React.FC<HeaderProps> = ({ onReset, onBack, config }) => {
   return (
     <header className="bg-white/90 backdrop-blur-md border-b border-slate-200 fixed top-0 left-0 right-0 z-40 h-16 transition-all duration-300">
       <div className="max-w-3xl mx-auto px-4 h-full flex items-center justify-between">
@@ -45,14 +44,6 @@ const Header: React.FC<HeaderProps> = ({ onReset, onBack, onSettings, config }) 
         </div>
 
         <div className="flex items-center space-x-1">
-          <button
-            onClick={onSettings}
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-all"
-            title="Settings"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
-
           {config && (
             <button
               onClick={onReset}

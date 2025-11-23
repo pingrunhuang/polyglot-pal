@@ -1,10 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Type, Modality } from "@google/genai";
-// NOTE: If using Doubao/Volcengine, you might normally import their SDK here.
-// For this implementation, we will use standard fetch to keep dependencies minimal
-// until you provide specific SDK requirements.
+import { GoogleGenAI, Type } from "@google/genai";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
 dotenv.config();
 
@@ -34,13 +32,13 @@ const ai = new GoogleGenAI({
 const chatSessions = new Map();
 
 const LANGUAGE_CONFIGS = {
-    French: { name: 'French', tutorName: 'Pierre', voiceName: 'Fenrir' },
-    English: { name: 'English', tutorName: 'James', voiceName: 'Fenrir' },
-    Spanish: { name: 'Spanish', tutorName: 'Sofia', voiceName: 'Kore' },
-    German: { name: 'German', tutorName: 'Hans', voiceName: 'Fenrir' },
-    Russian: { name: 'Russian', tutorName: 'Dimitri', voiceName: 'Fenrir' },
-    Japanese: { name: 'Japanese', tutorName: 'Yuki', voiceName: 'Puck' },
-    Cantonese: { name: 'Cantonese', tutorName: 'Ka-ming', voiceName: 'Fenrir' },
+    French: { name: 'French', tutorName: 'Pierre' },
+    English: { name: 'English', tutorName: 'James' },
+    Spanish: { name: 'Spanish', tutorName: 'Sofia' },
+    German: { name: 'German', tutorName: 'Hans' },
+    Russian: { name: 'Russian', tutorName: 'Dimitri' },
+    Japanese: { name: 'Japanese', tutorName: 'Yuki' },
+    Cantonese: { name: 'Cantonese', tutorName: 'Ka-ming' },
 };
 
 const getSystemInstruction = (langConfig) => `
@@ -51,6 +49,9 @@ Interaction Protocol:
 1. **Normal Conversation**: If the user speaks ${langConfig.name}, respond naturally. Check for grammar mistakes.
 2. **Language Bridge**: If the user speaks English/Chinese asking how to say something, provide the translation in ${langConfig.name} and ask them to repeat it.
 3. **Correction**: Always provide a JSON response with corrections.
+
+Specific Language Instructions:
+${langConfig.name === 'Cantonese' ? '- You MUST use Traditional Chinese characters and colloquial Cantonese grammar/particles (e.g., 唔, 係, 嘅) instead of standard written Chinese.' : ''}
 
 Output Format:
 You MUST respond using a valid JSON object with the following schema:
@@ -96,83 +97,6 @@ app.post('/api/chat/start', (req, res) => {
     req.url = '/api/chat';
     app.handle(req, res);
 });
-
-// --- TTS PROVIDER LOGIC ---
-
-// 1. Default Gemini TTS
-const generateGeminiTTS = async (text, voiceName) => {
-    console.log("Using Provider: Gemini TTS");
-    const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text: text }] }],
-        config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-                voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: voiceName || 'Fenrir' },
-                },
-            },
-        },
-    });
-
-    let base64Audio = null;
-    if (response.candidates &&
-        response.candidates.length > 0 &&
-        response.candidates[0].content &&
-        response.candidates[0].content.parts &&
-        response.candidates[0].content.parts.length > 0 &&
-        response.candidates[0].content.parts[0].inlineData) {
-        base64Audio = response.candidates[0].content.parts[0].inlineData.data;
-    }
-    return base64Audio;
-};
-
-// 2. Doubao (ByteDance) TTS Placeholder
-// Ensure you set DOUBAO_API_KEY, DOUBAO_APP_ID, etc. in your .env
-const generateDoubaoTTS = async (text, voiceName) => {
-    console.log("Using Provider: Doubao TTS");
-
-    const apiKey = process.env.DOUBAO_API_KEY;
-    const appid = process.env.DOUBAO_APP_ID;
-    const token = process.env.DOUBAO_TOKEN; // or however they authenticate
-
-    if (!apiKey && !token) {
-        throw new Error("Doubao configuration missing (DOUBAO_API_KEY/TOKEN)");
-    }
-
-    // Mock implementation structure for Volcengine/Doubao API
-    // Replace this URL and Body with the actual Volcengine API specs
-    const url = "https://openspeech.bytedance.com/api/v1/tts";
-
-    const response = await fetch(url, {
-        method: "POST",
-        headers: {
-            "Authorization": `Bearer ${token || apiKey}`,
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-            app: { appid: appid },
-            user: { uid: "user_1" },
-            audio: {
-                voice_type: "BV001_streaming", // Example Doubao Voice ID
-                encoding: "mp3",
-                speed_ratio: 1.0,
-            },
-            request: {
-                text: text,
-                operation: "query",
-            }
-        })
-    });
-
-    if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`Doubao TTS API Error: ${err}`);
-    }
-
-    const data = await response.json();
-    return data.data; // Assuming API returns base64 in 'data' field
-};
 
 
 // Main Chat Endpoint
@@ -255,30 +179,32 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
-// Updated TTS Endpoint
+// Edge TTS Endpoint
 app.post('/api/tts', async (req, res) => {
     try {
         const { text, voiceName } = req.body;
+        console.log(`TTS Request: ${voiceName} - "${text.substring(0, 20)}..."`);
 
-        // Determine Provider
-        const provider = process.env.TTS_PROVIDER || 'gemini';
-        let base64Audio = null;
+        const tts = new MsEdgeTTS();
+        await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+        const readable = tts.toStream(text);
 
-        if (provider === 'doubao') {
-            // Fallback to Gemini if Doubao config is missing but provider is set
-            if (!process.env.DOUBAO_API_KEY && !process.env.DOUBAO_TOKEN) {
-                console.warn("Doubao provider selected but no keys found. Falling back to Gemini.");
-                base64Audio = await generateGeminiTTS(text, voiceName);
-            } else {
-                base64Audio = await generateDoubaoTTS(text, voiceName);
-            }
-        } else {
-            // Default
-            base64Audio = await generateGeminiTTS(text, voiceName);
-        }
+        const chunks = [];
+        readable.on("data", (chunk) => {
+            chunks.push(chunk);
+        });
 
-        if (!base64Audio) throw new Error("No audio data returned from provider");
-        res.json({ audioData: base64Audio });
+        readable.on("end", () => {
+            const buffer = Buffer.concat(chunks);
+            const base64Audio = buffer.toString("base64");
+            // Return format to help frontend decide how to play
+            res.json({ audioData: base64Audio, format: 'mp3' });
+        });
+
+        readable.on("error", (err) => {
+            console.error("Edge TTS Stream Error:", err);
+            res.status(500).json({ error: "TTS Stream failed" });
+        });
 
     } catch (error) {
         console.error("TTS Error:", error);

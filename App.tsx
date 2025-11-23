@@ -4,7 +4,7 @@ import ChatBubble from './components/ChatBubble';
 import InputArea from './components/InputArea';
 import { Message, Sender, Scenarios, SupportedLanguage, LanguageConfig } from './types';
 import { chatWithGemini, LANGUAGE_CONFIGS, resetSession, getApiUrl } from './services/geminiService';
-import { BookOpen, Coffee, Plane, Sparkles, AlertCircle, Globe2, ChevronRight, X, Terminal, ShieldAlert, Save, RotateCcw, Loader2 } from 'lucide-react';
+import { BookOpen, Coffee, Plane, Sparkles, AlertCircle, Globe2, ChevronRight, X, Terminal, ShieldAlert, Loader2 } from 'lucide-react';
 
 const SCENARIO_OPTIONS = [
   { id: Scenarios.INTRO, icon: Sparkles, label: 'Basics', desc: 'Start from scratch' },
@@ -13,96 +13,8 @@ const SCENARIO_OPTIONS = [
   { id: Scenarios.HOBBIES, icon: BookOpen, label: 'Hobbies', desc: 'Discussing Hobbies' },
 ];
 
-// Settings Modal Component
-const SettingsModal = ({ onClose }: { onClose: () => void }) => {
-  const [apiUrl, setApiUrl] = useState('');
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    const stored = localStorage.getItem('custom_api_url');
-    if (stored) setApiUrl(stored);
-  }, []);
-
-  const handleSave = () => {
-    if (apiUrl.trim()) {
-      localStorage.setItem('custom_api_url', apiUrl.trim());
-    } else {
-      localStorage.removeItem('custom_api_url');
-    }
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      onClose();
-      window.location.reload(); // Reload to apply changes
-    }, 800);
-  };
-
-  const handleReset = () => {
-    localStorage.removeItem('custom_api_url');
-    setApiUrl('');
-    setSaved(true);
-    setTimeout(() => {
-      setSaved(false);
-      onClose();
-      window.location.reload();
-    }, 800);
-  };
-
-  const currentEffectiveUrl = getApiUrl('');
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
-        <div className="bg-slate-50 px-6 py-4 flex items-center justify-between border-b border-slate-100">
-          <h3 className="text-lg font-bold text-slate-800">Settings</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        <div className="p-6">
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-slate-700 mb-2">Backend API URL</label>
-            <p className="text-xs text-slate-500 mb-3">
-              If automatic configuration fails, paste your Render URL here (e.g., <code>https://your-app.onrender.com</code>).
-            </p>
-            <input
-              type="text"
-              value={apiUrl}
-              onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-            />
-          </div>
-
-          <div className="bg-slate-100 rounded p-3 mb-4 text-xs text-slate-500 break-all">
-            <strong>Current Active URL:</strong><br />
-            {currentEffectiveUrl || "Relative (Proxy)"}
-          </div>
-
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={handleSave}
-              className={`flex-1 py-2 px-4 rounded-lg font-medium flex items-center justify-center transition-all ${saved ? 'bg-green-500 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'
-                }`}
-            >
-              {saved ? 'Saved!' : <><Save className="w-4 h-4 mr-2" /> Save & Reload</>}
-            </button>
-            <button
-              onClick={handleReset}
-              className="py-2 px-4 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-lg font-medium flex items-center"
-              title="Reset to Default"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // Simple Error Modal Component
-const ErrorModal = ({ message, debugInfo, onClose, onOpenSettings }: { message: string; debugInfo?: string; onClose: () => void; onOpenSettings: () => void }) => {
+const ErrorModal = ({ message, debugInfo, onClose }: { message: string; debugInfo?: string; onClose: () => void }) => {
   const isMixedContentError = debugInfo?.includes("Mixed Content") || debugInfo?.includes("was loaded over HTTPS, but requested an insecure resource");
 
   return (
@@ -149,13 +61,7 @@ const ErrorModal = ({ message, debugInfo, onClose, onOpenSettings }: { message: 
             </div>
           )}
         </div>
-        <div className="px-6 py-4 bg-slate-50 flex justify-between">
-          <button
-            onClick={() => { onClose(); onOpenSettings(); }}
-            className="text-sm text-blue-600 hover:underline font-medium"
-          >
-            Configure Settings
-          </button>
+        <div className="px-6 py-4 bg-slate-50 flex justify-end">
           <button
             onClick={onClose}
             className="px-4 py-2 bg-white border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-100 transition-colors shadow-sm"
@@ -177,7 +83,6 @@ function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<string | null>(null);
   const [loadingText, setLoadingText] = useState("Tutor is thinking...");
-  const [showSettings, setShowSettings] = useState(false);
   const [loadingScenario, setLoadingScenario] = useState<Scenarios | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -333,7 +238,6 @@ function App() {
       <div className="flex flex-col h-[100dvh] bg-slate-50 font-sans relative">
         <Header
           onReset={() => { }}
-          onSettings={() => setShowSettings(true)}
         />
         <main className="flex-1 overflow-y-auto p-4 pt-24 scroll-smooth">
           <div className="max-w-4xl w-full mx-auto animate-fade-in min-h-full flex flex-col pb-8">
@@ -369,13 +273,11 @@ function App() {
             </div>
           </div>
         </main>
-        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
         {errorMsg && (
           <ErrorModal
             message={errorMsg}
             debugInfo={debugInfo || undefined}
             onClose={() => setErrorMsg(null)}
-            onOpenSettings={() => { setErrorMsg(null); setShowSettings(true); }}
           />
         )}
       </div>
@@ -388,7 +290,6 @@ function App() {
       <Header
         onReset={handleReset}
         onBack={handleBackToSelection}
-        onSettings={() => setShowSettings(true)}
         config={currentConfig}
       />
 
@@ -484,14 +385,11 @@ function App() {
         />
       )}
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
-
       {errorMsg && (
         <ErrorModal
           message={errorMsg}
           debugInfo={debugInfo || undefined}
           onClose={() => setErrorMsg(null)}
-          onOpenSettings={() => { setErrorMsg(null); setShowSettings(true); }}
         />
       )}
     </div>

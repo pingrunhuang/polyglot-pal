@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from "@google/genai";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
 dotenv.config();
 
@@ -19,6 +18,8 @@ app.use(express.json());
 // --- Configuration ---
 const apiKey = process.env.API_KEY;
 const baseUrl = process.env.GEMINI_BASE_URL;
+const speechKey = process.env.SPEECH_KEY;
+const speechRegion = process.env.SPEECH_REGION;
 
 // Initialize SDK options conditionally
 const clientOptions = baseUrl ? { baseUrl } : {};
@@ -86,7 +87,11 @@ const parseGeminiJson = (text) => {
 const checkConnectivity = async () => {
     if (!apiKey) {
         console.error("❌ ERROR: API_KEY is missing in .env file.");
-        return;
+        // Don't return, allow server to start so we can see the error in logs easier
+    }
+
+    if (!speechKey || !speechRegion) {
+        console.error("❌ ERROR: SPEECH_KEY or SPEECH_REGION is missing in .env file (Required for Azure TTS).");
     }
 
     console.log("📡 Checking connectivity to Google Gemini...");
@@ -207,11 +212,15 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
-// Edge TTS Endpoint
+// Azure TTS Endpoint (REST API Implementation)
 app.post('/api/tts', async (req, res) => {
     try {
         const { text, voiceName } = req.body;
-        console.log(req)
+
+        if (!speechKey || !speechRegion) {
+            return res.status(500).json({ error: "Server missing Azure Speech credentials (SPEECH_KEY/SPEECH_REGION)" });
+        }
+
         // Validate Input
         if (!text) {
             console.warn("TTS Warning: Received empty or undefined text");
@@ -221,61 +230,48 @@ app.post('/api/tts', async (req, res) => {
             return res.status(400).json({ error: "Voice name is required for TTS" });
         }
 
-        const safeText = String(text).substring(0, 30);
-        console.log(`TTS Request: ${voiceName} - "${safeText}..."`);
+        const safeText = String(text).substring(0, 50);
+        console.log(`TTS Request (Azure REST): ${voiceName} - "${safeText}..."`);
 
-        // Safety Timeout: If Edge doesn't respond in 15s, abort
-        const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Edge TTS timed out (15s)")), 15000)
-        );
+        // Extract locale from voice name (e.g., 'fr-FR-HenriNeural' -> 'fr-FR')
+        const locale = voiceName.split('-').slice(0, 2).join('-');
 
-        const ttsPromise = new Promise(async (resolve, reject) => {
-            try {
-                const tts = new MsEdgeTTS();
-                await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-                const readable = tts.toStream(text);
+        const ssml = `
+      <speak version='1.0' xml:lang='${locale}'>
+        <voice xml:lang='${locale}' xml:gender='Male' name='${voiceName}'>
+          ${text}
+        </voice>
+      </speak>
+    `;
 
-                const chunks = [];
-                readable.on("data", (chunk) => chunks.push(chunk));
+        const ttsUrl = `https://${speechRegion}.tts.speech.microsoft.com/cognitiveservices/v1`;
 
-                readable.on("end", () => {
-                    const buffer = Buffer.concat(chunks);
-                    const base64Audio = buffer.toString("base64");
-                    resolve(base64Audio);
-                });
-
-                // Enhanced Error Logging
-                readable.on("error", (err) => {
-                    reject(err);
-                });
-
-            } catch (err) {
-                reject(err);
-            }
+        const response = await fetch(ttsUrl, {
+            method: 'POST',
+            headers: {
+                'Ocp-Apim-Subscription-Key': speechKey,
+                'Content-Type': 'application/ssml+xml',
+                'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
+                'User-Agent': 'PolyglotPal'
+            },
+            body: ssml.trim()
         });
 
-        // Race the TTS against the clock
-        const base64Audio = await Promise.race([ttsPromise, timeoutPromise]);
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Azure TTS REST API Failed: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const base64Audio = Buffer.from(arrayBuffer).toString('base64');
 
         res.json({ audioData: base64Audio, format: 'mp3' });
 
     } catch (error) {
-        // DETAILED ERROR LOGGING
-        console.error("----- TTS FAILED -----");
-        console.error("Error Message:", error.message);
-        if (error.stack) console.error("Stack:", error.stack);
-
-        // Log full object if it's complex (handles the [object Object] case)
-        try {
-            console.error("Full Error Object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-        } catch (e) {
-            console.error("Could not stringify error object");
-        }
-        console.error("----------------------");
-
+        console.error("TTS Error:", error);
         res.status(500).json({
             error: "Text-to-Speech generation failed.",
-            details: error.message || "Check server logs for details."
+            details: error.message
         });
     }
 });

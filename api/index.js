@@ -40,6 +40,7 @@ const LANGUAGE_CONFIGS = {
     Russian: { name: 'Russian', tutorName: 'Dimitri' },
     Japanese: { name: 'Japanese', tutorName: 'Yuki' },
     Cantonese: { name: 'Cantonese', tutorName: 'Ka-ming' },
+    Chinese: { name: 'Chinese', tutorName: 'Li Wei' },
 };
 
 const getSystemInstruction = (langConfig) => `

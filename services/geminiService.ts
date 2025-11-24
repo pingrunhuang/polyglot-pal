@@ -8,6 +8,7 @@ export const LANGUAGE_CONFIGS: Record<SupportedLanguage, LanguageConfig> = {
   Russian: { id: 'Russian', name: 'Russian', flag: '🇷🇺', tutorName: 'Dimitri', voiceName: 'ru-RU-DmitryNeural', speechCode: 'ru-RU', greeting: 'Привет! Как дела?' },
   Japanese: { id: 'Japanese', name: 'Japanese', flag: '🇯🇵', tutorName: 'Yuki', voiceName: 'ja-JP-KeitaNeural', speechCode: 'ja-JP', greeting: 'こんにちは！元気ですか？' },
   Cantonese: { id: 'Cantonese', name: 'Cantonese', flag: '🇭🇰', tutorName: 'Ka-ming', voiceName: 'zh-HK-WanLungNeural', speechCode: 'zh-HK', greeting: '你好！食咗飯未呀？' },
+  Chinese: { id: 'Chinese', name: 'Chinese', flag: '🇨🇳', tutorName: 'Li Wei', voiceName: 'zh-CN-YunxiNeural', speechCode: 'zh-CN', greeting: '你好！很高兴见到你。' },
 };
 
 let currentVoiceName = 'en-US-ChristopherNeural';

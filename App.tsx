@@ -328,7 +328,7 @@ function App() {
                 <div className="w-24 h-24 bg-white rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-blue-50 mb-6">
                   <span className="text-6xl">{currentConfig.flag}</span>
                 </div>
-                <h2 className="text-3xl font-bold text-slate-800">Bienvenue!</h2>
+                <h2 className="text-3xl font-bold text-slate-800">{currentConfig.greeting}</h2>
                 <p className="text-slate-500 max-w-md mx-auto">
                   I am {currentConfig.tutorName}. Choose a scenario to start our conversation in {currentConfig.name}.
                 </p>
@@ -341,13 +341,13 @@ function App() {
                     onClick={() => startScenario(option.id)}
                     disabled={loadingScenario !== null}
                     className={`flex items-center p-4 bg-white border rounded-xl transition-all group text-left relative overflow-hidden ${loadingScenario === option.id
-                        ? 'border-blue-400 ring-2 ring-blue-100 shadow-md'
-                        : 'border-slate-200 hover:border-blue-400 hover:shadow-md cursor-pointer'
+                      ? 'border-blue-400 ring-2 ring-blue-100 shadow-md'
+                      : 'border-slate-200 hover:border-blue-400 hover:shadow-md cursor-pointer'
                       } ${loadingScenario !== null && loadingScenario !== option.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <div className={`w-12 h-12 rounded-full flex items-center justify-center mr-4 transition-colors ${loadingScenario === option.id
-                        ? 'bg-blue-100 text-blue-600'
-                        : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
+                      ? 'bg-blue-100 text-blue-600'
+                      : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
                       }`}>
                       {loadingScenario === option.id ? (
                         <Loader2 className="w-6 h-6 animate-spin" />

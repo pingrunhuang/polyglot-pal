@@ -185,30 +185,59 @@ app.post('/api/tts', async (req, res) => {
         const { text, voiceName } = req.body;
         console.log(`TTS Request: ${voiceName} - "${text.substring(0, 20)}..."`);
 
-        const tts = new MsEdgeTTS();
-        await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-        const readable = tts.toStream(text);
+        // Safety Timeout: If Edge doesn't respond in 15s, abort
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("Edge TTS timed out (15s)")), 15000)
+        );
 
-        const chunks = [];
-        readable.on("data", (chunk) => {
-            chunks.push(chunk);
+        const ttsPromise = new Promise(async (resolve, reject) => {
+            try {
+                const tts = new MsEdgeTTS();
+                await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+                const readable = tts.toStream(text);
+
+                const chunks = [];
+                readable.on("data", (chunk) => chunks.push(chunk));
+
+                readable.on("end", () => {
+                    const buffer = Buffer.concat(chunks);
+                    const base64Audio = buffer.toString("base64");
+                    resolve(base64Audio);
+                });
+
+                // Enhanced Error Logging
+                readable.on("error", (err) => {
+                    reject(err);
+                });
+
+            } catch (err) {
+                reject(err);
+            }
         });
 
-        readable.on("end", () => {
-            const buffer = Buffer.concat(chunks);
-            const base64Audio = buffer.toString("base64");
-            // Return format to help frontend decide how to play
-            res.json({ audioData: base64Audio, format: 'mp3' });
-        });
+        // Race the TTS against the clock
+        const base64Audio = await Promise.race([ttsPromise, timeoutPromise]);
 
-        readable.on("error", (err) => {
-            console.error("Edge TTS Stream Error:", err);
-            res.status(500).json({ error: "TTS Stream failed" });
-        });
+        res.json({ audioData: base64Audio, format: 'mp3' });
 
     } catch (error) {
-        console.error("TTS Error:", error);
-        res.status(500).json({ error: error.message || "Text-to-Speech failed" });
+        // DETAILED ERROR LOGGING
+        console.error("----- TTS FAILED -----");
+        console.error("Error Message:", error.message);
+        if (error.stack) console.error("Stack:", error.stack);
+
+        // Log full object if it's complex (handles the [object Object] case)
+        try {
+            console.error("Full Error Object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+        } catch (e) {
+            console.error("Could not stringify error object");
+        }
+        console.error("----------------------");
+
+        res.status(500).json({
+            error: "Text-to-Speech generation failed.",
+            details: error.message || "Check server logs for [object Object] details."
+        });
     }
 });
 

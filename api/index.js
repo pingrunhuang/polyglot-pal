@@ -83,6 +83,34 @@ const parseGeminiJson = (text) => {
     }
 };
 
+const checkConnectivity = async () => {
+    if (!apiKey) {
+        console.error("❌ ERROR: API_KEY is missing in .env file.");
+        return;
+    }
+
+    console.log("📡 Checking connectivity to Google Gemini...");
+    try {
+        const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
+        // Simple ping
+        await model.generateContent("Hi");
+        console.log("✅ Connection Successful! Gemini is reachable.");
+    } catch (error) {
+        console.error("❌ Connection failed.");
+        console.error("   Reason:", error.message);
+        if (error.cause) console.error("   Cause:", error.cause);
+
+        if (error.message.includes("fetch failed")) {
+            console.error("\n💡 TIP: It looks like a network block.");
+            console.error("   1. If you are in China/Corporate Network, you need a VPN or Proxy.");
+            console.error("   2. Try setting GEMINI_BASE_URL in .env to a reverse proxy.");
+        }
+    }
+};
+
+// Run check on startup
+checkConnectivity();
+
 app.get('/api', (req, res) => {
     res.send("Polyglot Pal API is running (Stateful Mode)");
 });
@@ -183,7 +211,18 @@ app.post('/api/chat', async (req, res) => {
 app.post('/api/tts', async (req, res) => {
     try {
         const { text, voiceName } = req.body;
-        console.log(`TTS Request: ${voiceName} - "${text.substring(0, 20)}..."`);
+        console.log(req)
+        // Validate Input
+        if (!text) {
+            console.warn("TTS Warning: Received empty or undefined text");
+            return res.status(400).json({ error: "Text is required for TTS" });
+        }
+        if (!voiceName) {
+            return res.status(400).json({ error: "Voice name is required for TTS" });
+        }
+
+        const safeText = String(text).substring(0, 30);
+        console.log(`TTS Request: ${voiceName} - "${safeText}..."`);
 
         // Safety Timeout: If Edge doesn't respond in 15s, abort
         const timeoutPromise = new Promise((_, reject) =>
@@ -236,7 +275,7 @@ app.post('/api/tts', async (req, res) => {
 
         res.status(500).json({
             error: "Text-to-Speech generation failed.",
-            details: error.message || "Check server logs for [object Object] details."
+            details: error.message || "Check server logs for details."
         });
     }
 });

@@ -70,7 +70,7 @@ const ErrorModal = ({ message, debugInfo, onClose }: { message: string; debugInf
           </button>
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 
@@ -161,26 +161,51 @@ function App() {
     }
   };
 
-  // Updated to accept audioUrl
-  const handleSendMessage = async (text: string, audioUrl?: string) => {
+  // Convert Blob to Base64 Helper
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        // Remove the data URL prefix (e.g., "data:audio/webm;base64,")
+        const base64Data = base64String.split(',')[1];
+        resolve(base64Data);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const handleSendMessage = async (text: string, audioBlob?: Blob) => {
     if (!currentConfig || !selectedLanguage) return;
     setErrorMsg(null);
     setDebugInfo(null);
 
-    // 1. Add User Message to UI (Including audio if present)
+    // Create Audio URL for local playback if recording exists
+    const audioUrl = audioBlob ? URL.createObjectURL(audioBlob) : undefined;
+
+    // 1. Add User Message to UI
     const userMsg: Message = {
       id: Date.now().toString(),
       sender: Sender.USER,
-      text: text,
+      text: text, // Might be empty if audio only
       timestamp: Date.now(),
-      userAudioUrl: audioUrl // Store recording
+      userAudioUrl: audioUrl
     };
     setMessages(prev => [...prev, userMsg]);
     setIsTyping(true);
 
     try {
-      // 2. Call Stateful Backend (Send text transcript for logic)
-      const result = await chatWithGemini(text, selectedLanguage);
+      let audioBase64: string | undefined = undefined;
+
+      if (audioBlob) {
+        audioBase64 = await blobToBase64(audioBlob);
+      }
+
+      // 2. Call Stateful Backend
+      // Pass audioBlob.type if available
+      const mimeType = audioBlob?.type;
+      const result = await chatWithGemini(text, selectedLanguage, undefined, audioBase64, mimeType);
 
       const tutorMsg: Message = {
         id: (Date.now() + 1).toString(),

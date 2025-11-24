@@ -159,7 +159,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
         <div className="max-w-[85%] md:max-w-[70%]">
           <div className="bg-blue-600 text-white px-5 py-3.5 rounded-2xl rounded-br-none shadow-md relative">
             {message.userAudioUrl && (
-              <div className="flex items-center space-x-3 mb-2 pb-2 border-b border-blue-500/50">
+              <div className={`flex items-center space-x-3 ${message.text ? 'mb-2 pb-2 border-b border-blue-500/50' : ''}`}>
                 <button
                   onClick={toggleUserAudio}
                   className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center hover:bg-white/30 transition-colors"
@@ -178,7 +178,9 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
                 </div>
               </div>
             )}
-            <p className="text-base leading-relaxed font-medium">{message.text}</p>
+            {message.text && (
+              <p className="text-base leading-relaxed font-medium">{message.text}</p>
+            )}
           </div>
           <div className="text-right text-[10px] text-slate-400 mt-1 mr-1 font-medium opacity-70">
             You • {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -211,7 +213,9 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
               <Sparkles className="w-4 h-4 text-orange-500 mt-0.5 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-slate-700 text-sm leading-snug mb-1">
-                  <span className="font-medium text-red-500 line-through mr-2 opacity-60">{message.text}</span>
+                  {message.text && (
+                    <span className="font-medium text-red-500 line-through mr-2 opacity-60">{message.text}</span>
+                  )}
                   <span className="text-green-700 font-bold break-words">{correction.correctedText}</span>
                 </p>
                 <p className="text-xs text-slate-500 italic">
@@ -229,8 +233,8 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
                 onClick={() => handleSpeakTutor(tutorResponse?.targetText || '')}
                 disabled={isTutorAudioLoading}
                 className={`w-10 h-10 rounded-full flex items-center justify-center transition-all shadow-sm ${isTutorPlaying
-                    ? 'bg-blue-100 text-blue-600 ring-2 ring-blue-200'
-                    : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'
+                  ? 'bg-blue-100 text-blue-600 ring-2 ring-blue-200'
+                  : 'bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white'
                   }`}
               >
                 {isTutorAudioLoading ? (

@@ -55,7 +55,9 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
 export const chatWithGemini = async (
   message: string,
   language: SupportedLanguage,
-  scenario?: Scenarios
+  scenario?: Scenarios,
+  audioBase64?: string,
+  audioMimeType?: string
 ): Promise<{ correction: CorrectionData, response: TutorResponseData }> => {
 
   const config = LANGUAGE_CONFIGS[language];
@@ -66,6 +68,8 @@ export const chatWithGemini = async (
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message,
+      audioData: audioBase64, // Pass audio data if available
+      audioMimeType,          // Pass detected mime type
       sessionId: currentSessionId,
       language,
       scenario
@@ -98,6 +102,10 @@ export interface AudioResponse {
 }
 
 export const generateSpeech = async (text: string): Promise<AudioResponse> => {
+  if (!text) {
+    throw new Error("Cannot generate speech for empty text");
+  }
+
   try {
     const response = await fetchWithTimeout(getApiUrl('/api/tts'), {
       method: 'POST',

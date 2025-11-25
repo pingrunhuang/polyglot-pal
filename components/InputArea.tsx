@@ -18,6 +18,7 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
   const audioChunksRef = useRef<Blob[]>([]);
   const isHoldingRef = useRef(false);
   const mimeTypeRef = useRef<string>('audio/webm');
+  const startTimeRef = useRef<number>(0);
 
   const handleSend = () => {
     if (text.trim() && !disabled) {
@@ -69,6 +70,7 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
       };
 
       mediaRecorder.start();
+      startTimeRef.current = Date.now();
       isHoldingRef.current = true;
       setIsRecording(true);
 
@@ -84,6 +86,19 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
     isHoldingRef.current = false;
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      const duration = Date.now() - startTimeRef.current;
+
+      // Duration check: less than 1 second
+      if (duration < 1000) {
+        mediaRecorderRef.current.onstop = null; // Prevent sending
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+        mediaRecorderRef.current = null;
+        setIsRecording(false);
+        audioChunksRef.current = [];
+        // Audio discarded, do nothing.
+        return;
+      }
+
       mediaRecorderRef.current.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current });
 

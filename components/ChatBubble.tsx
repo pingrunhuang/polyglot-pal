@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Message, Sender, LanguageConfig } from '../types';
+import { Message, Sender, LanguageConfig, AudioResponse } from '../types';
 import { Volume2, StopCircle, Sparkles, Eye, Loader2, ChevronDown, ChevronUp, Play, Pause } from 'lucide-react';
-import { generateSpeech, AudioResponse } from '../services/geminiService';
+import { generateSpeech } from '../services/geminiService';
 
 interface ChatBubbleProps {
   message: Message;
@@ -16,6 +16,10 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
   const [isTutorAudioLoading, setIsTutorAudioLoading] = useState(false);
   const [isTutorPlaying, setIsTutorPlaying] = useState(false);
 
+  // Correction Audio State
+  const [isCorrectionLoading, setIsCorrectionLoading] = useState(false);
+  const [activeCorrectionType, setActiveCorrectionType] = useState<'text' | 'explanation' | null>(null);
+
   // User Audio State
   const [isUserPlaying, setIsUserPlaying] = useState(false);
   const userAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -24,6 +28,9 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const hasAutoPlayedRef = useRef(false);
   const audioCacheRef = useRef<AudioResponse | null>(null);
+
+  // Simple cache for the last played correction audio (overwrites on new request)
+  const correctionAudioCacheRef = useRef<AudioResponse | null>(null);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -56,32 +63,108 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
   }, [message.userAudioUrl, isUser]);
 
 
-  // --- Tutor Audio Logic ---
-  const stopTutorAudio = async () => {
+  // --- Shared Audio Logic ---
+  const stopAllAudio = async () => {
     try {
       if (sourceRef.current) {
         sourceRef.current.stop();
         sourceRef.current = null;
       }
-      if (audioContextRef.current) {
-        await audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
+      // We don't necessarily close the context, just stop the source
     } catch (e) {
-      // Ignore errors during cleanup
+      // Ignore errors
     } finally {
       setIsTutorPlaying(false);
+      setActiveCorrectionType(null);
       setIsTutorAudioLoading(false);
+      setIsCorrectionLoading(false);
     }
   };
 
+  const playRawAudio = async (audioResponse: AudioResponse, onEnded: () => void) => {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+
+    // Re-use context or create new if closed/null
+    let ctx = audioContextRef.current;
+    if (!ctx || ctx.state === 'closed') {
+      ctx = new AudioContextClass();
+      audioContextRef.current = ctx;
+    }
+
+    if (ctx.state === 'suspended') {
+      await ctx.resume();
+    }
+
+    let audioBuffer: AudioBuffer;
+
+    if (audioResponse.format === 'mp3') {
+      const bufferCopy = audioResponse.data.buffer.slice(0) as ArrayBuffer;
+      audioBuffer = await ctx.decodeAudioData(bufferCopy);
+    } else {
+      const pcmData = audioResponse.data;
+      const dataInt16 = new Int16Array(pcmData.buffer);
+      const float32 = new Float32Array(dataInt16.length);
+      for (let i = 0; i < dataInt16.length; i++) {
+        float32[i] = dataInt16[i] / 32768;
+      }
+      audioBuffer = ctx.createBuffer(1, float32.length, 24000);
+      audioBuffer.getChannelData(0).set(float32);
+    }
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    sourceRef.current = source;
+
+    source.onended = () => {
+      sourceRef.current = null;
+      onEnded();
+    };
+
+    source.start(0);
+  };
+
+  // --- Correction Audio Handler ---
+  const handleSpeakCorrection = async (text: string, type: 'text' | 'explanation') => {
+    if (isCorrectionLoading) return;
+
+    // Check if we are clicking the stop button for the currently playing item
+    if (activeCorrectionType === type) {
+      await stopAllAudio();
+      return;
+    }
+
+    // Stop any other audio if playing (tutor or other correction part)
+    await stopAllAudio();
+
+    setIsCorrectionLoading(true);
+    setActiveCorrectionType(type);
+
+    try {
+      // Use the tutor's voice for corrections if possible, or fallback
+      const voiceName = languageConfig?.voiceName;
+      const audioResponse = await generateSpeech(text, voiceName);
+
+      await playRawAudio(audioResponse, () => setActiveCorrectionType(null));
+    } catch (error) {
+      console.error("Failed to play correction audio:", error);
+      setActiveCorrectionType(null);
+    } finally {
+      setIsCorrectionLoading(false);
+    }
+  };
+
+  // --- Tutor Main Response Handler ---
   const handleSpeakTutor = async (text: string) => {
     if (isTutorAudioLoading) return;
 
     if (isTutorPlaying) {
-      await stopTutorAudio();
+      await stopAllAudio();
       return;
     }
+
+    // Stop correction audio if playing
+    if (activeCorrectionType) await stopAllAudio();
 
     setIsTutorAudioLoading(true);
 
@@ -90,48 +173,12 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
       if (audioCacheRef.current) {
         audioResponse = audioCacheRef.current;
       } else {
-        audioResponse = await generateSpeech(text);
+        const voiceName = languageConfig?.voiceName;
+        audioResponse = await generateSpeech(text, voiceName);
         audioCacheRef.current = audioResponse;
       }
 
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioContextClass(); // No sampleRate needed for mp3 decode
-
-      if (ctx.state === 'suspended') {
-        await ctx.resume();
-      }
-      audioContextRef.current = ctx;
-
-      let audioBuffer: AudioBuffer;
-
-      if (audioResponse.format === 'mp3') {
-        // Standard decoding for MP3 (Edge TTS)
-        // We must copy the buffer because decodeAudioData detaches it
-        const bufferCopy = audioResponse.data.buffer.slice(0) as ArrayBuffer;
-        audioBuffer = await ctx.decodeAudioData(bufferCopy);
-      } else {
-        // Fallback for PCM (Legacy Gemini)
-        const pcmData = audioResponse.data;
-        const dataInt16 = new Int16Array(pcmData.buffer);
-        const float32 = new Float32Array(dataInt16.length);
-        for (let i = 0; i < dataInt16.length; i++) {
-          float32[i] = dataInt16[i] / 32768;
-        }
-        audioBuffer = ctx.createBuffer(1, float32.length, 24000);
-        audioBuffer.getChannelData(0).set(float32);
-      }
-
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      sourceRef.current = source;
-
-      source.onended = () => {
-        setIsTutorPlaying(false);
-        sourceRef.current = null;
-      };
-
-      source.start(0);
+      await playRawAudio(audioResponse, () => setIsTutorPlaying(false));
       setIsTutorPlaying(true);
 
     } catch (error) {
@@ -191,9 +238,9 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
   }
 
   // --- Render Tutor Bubble ---
-  const { correction, tutorResponse } = message;
   const tutorName = languageConfig?.tutorName || "Tutor";
   const tutorInitial = tutorName.charAt(0);
+  const { correction, tutorResponse } = message;
 
   return (
     <div className="flex justify-start mb-8 animate-fade-in w-full group">
@@ -212,15 +259,50 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message, languageConfig }) => {
             <div className="flex items-start space-x-3">
               <Sparkles className="w-4 h-4 text-orange-500 mt-0.5 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-slate-700 text-sm leading-snug mb-1">
+                <div className="text-slate-700 text-sm leading-snug mb-1">
                   {message.text && (
                     <span className="font-medium text-red-500 line-through mr-2 opacity-60">{message.text}</span>
                   )}
-                  <span className="text-green-700 font-bold break-words">{correction.correctedText}</span>
-                </p>
-                <p className="text-xs text-slate-500 italic">
-                  {correction.explanation}
-                </p>
+                  <div className="flex items-center flex-wrap gap-2 mt-1">
+                    <span className="text-green-700 font-bold break-words">{correction.correctedText}</span>
+                    <button
+                      onClick={() => handleSpeakCorrection(correction.correctedText || '', 'text')}
+                      disabled={isCorrectionLoading && activeCorrectionType !== 'text'}
+                      className="inline-flex items-center justify-center p-1.5 rounded-full bg-orange-100 text-orange-600 hover:bg-orange-200 transition-colors"
+                      title="Listen to correction"
+                    >
+                      {isCorrectionLoading && activeCorrectionType === 'text' ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : activeCorrectionType === 'text' ? (
+                        <StopCircle className="w-3 h-3 fill-current" />
+                      ) : (
+                        <Volume2 className="w-3 h-3" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {correction.explanation && (
+                  <div className="flex items-start gap-2 mt-2">
+                    <p className="text-xs text-slate-500 italic leading-relaxed flex-1">
+                      {correction.explanation}
+                    </p>
+                    <button
+                      onClick={() => handleSpeakCorrection(correction.explanation || '', 'explanation')}
+                      disabled={isCorrectionLoading && activeCorrectionType !== 'explanation'}
+                      className="flex-shrink-0 inline-flex items-center justify-center p-1 rounded-full text-slate-400 hover:text-orange-600 hover:bg-orange-50 transition-colors"
+                      title="Listen to explanation"
+                    >
+                      {isCorrectionLoading && activeCorrectionType === 'explanation' ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : activeCorrectionType === 'explanation' ? (
+                        <StopCircle className="w-3 h-3 fill-current" />
+                      ) : (
+                        <Volume2 className="w-3 h-3" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

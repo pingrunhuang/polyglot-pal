@@ -1,8 +1,11 @@
-/// <reference types="vite/client" />
-
 interface ImportMetaEnv {
   readonly VITE_API_URL: string;
   readonly VITE_API_TIMEOUT: string;
+  readonly VITE_USE_MOCK: string;
+  readonly VITE_GOOGLE_CLIENT_ID: string;
+  readonly VITE_STRIPE_PUBLISHABLE_KEY: string;
+  readonly VITE_SUPABASE_URL: string;
+  readonly VITE_SUPABASE_ANON_KEY: string;
   // more env variables...
 }
 
@@ -13,6 +16,7 @@ interface ImportMeta {
 declare namespace NodeJS {
   interface ProcessEnv {
     API_KEY: string;
+    STRIPE_SECRET_KEY: string;
     [key: string]: string | undefined;
   }
 }

@@ -1,44 +1,108 @@
-import { CorrectionData, TutorResponseData, Scenarios, SupportedLanguage, LanguageConfig } from "../types";
+import { CorrectionData, TutorResponseData, Scenarios, SupportedLanguage, LanguageConfig, AudioResponse, User } from "../types";
+import { getMockChatResponse, getMockAudioResponse, simulateNetworkDelay } from "./mockData";
 
 export const LANGUAGE_CONFIGS: Record<SupportedLanguage, LanguageConfig> = {
-  French: { id: 'French', name: 'French', flag: '🇫🇷', tutorName: 'Pierre', voiceName: 'fr-FR-HenriNeural', speechCode: 'fr-FR', greeting: 'Bonjour! Ça va?' },
-  English: { id: 'English', name: 'English', flag: '🇬🇧', tutorName: 'James', voiceName: 'en-US-ChristopherNeural', speechCode: 'en-US', greeting: 'Hello! How are you?' },
-  Spanish: { id: 'Spanish', name: 'Spanish', flag: '🇪🇸', tutorName: 'Sofia', voiceName: 'es-ES-ElviraNeural', speechCode: 'es-ES', greeting: '¡Hola! ¿Cómo estás?' },
-  German: { id: 'German', name: 'German', flag: '🇩🇪', tutorName: 'Hans', voiceName: 'de-DE-ConradNeural', speechCode: 'de-DE', greeting: 'Hallo! Wie geht es dir?' },
-  Russian: { id: 'Russian', name: 'Russian', flag: '🇷🇺', tutorName: 'Dimitri', voiceName: 'ru-RU-DmitryNeural', speechCode: 'ru-RU', greeting: 'Привет! Как дела?' },
-  Japanese: { id: 'Japanese', name: 'Japanese', flag: '🇯🇵', tutorName: 'Yuki', voiceName: 'ja-JP-KeitaNeural', speechCode: 'ja-JP', greeting: 'こんにちは！元気ですか？' },
-  Cantonese: { id: 'Cantonese', name: 'Cantonese', flag: '🇭🇰', tutorName: 'Ka-ming', voiceName: 'zh-HK-WanLungNeural', speechCode: 'zh-HK', greeting: '你好！食咗飯未呀？' },
-  Chinese: { id: 'Chinese', name: 'Chinese', flag: '🇨🇳', tutorName: 'Li Wei', voiceName: 'zh-CN-YunxiNeural', speechCode: 'zh-CN', greeting: '你好！很高兴见到你。' },
+  French: {
+    id: 'French',
+    name: 'French',
+    flag: '🇫🇷',
+    tutorName: 'Pierre',
+    voiceName: 'fr-FR-HenriNeural',
+    speechCode: 'fr-FR',
+    greeting: "Bonjour ! Je suis Pierre. Comment vas-tu aujourd'hui ?"
+  },
+  English: {
+    id: 'English',
+    name: 'English',
+    flag: '🇬🇧',
+    tutorName: 'James',
+    voiceName: 'en-GB-RyanNeural',
+    speechCode: 'en-GB',
+    greeting: "Hello! I'm James. How are you doing today?"
+  },
+  Spanish: {
+    id: 'Spanish',
+    name: 'Spanish',
+    flag: '🇪🇸',
+    tutorName: 'Sofia',
+    voiceName: 'es-ES-AlvaroNeural',
+    speechCode: 'es-ES',
+    greeting: "¡Hola! Soy Sofía. ¿Cómo estás hoy?"
+  },
+  German: {
+    id: 'German',
+    name: 'German',
+    flag: '🇩🇪',
+    tutorName: 'Hans',
+    voiceName: 'de-DE-KillianNeural',
+    speechCode: 'de-DE',
+    greeting: "Hallo! Ich bin Hans. Wie geht es dir heute?"
+  },
+  Russian: {
+    id: 'Russian',
+    name: 'Russian',
+    flag: '🇷🇺',
+    tutorName: 'Dimitri',
+    voiceName: 'ru-RU-DmitryNeural',
+    speechCode: 'ru-RU',
+    greeting: "Привет! Я Дмитрий. Как твои дела?"
+  },
+  Japanese: {
+    id: 'Japanese',
+    name: 'Japanese',
+    flag: '🇯🇵',
+    tutorName: 'Yuki',
+    voiceName: 'ja-JP-KeitaNeural',
+    speechCode: 'ja-JP',
+    greeting: "こんにちは、ゆきです。お元気ですか？"
+  },
+  Cantonese: {
+    id: 'Cantonese',
+    name: 'Cantonese',
+    flag: '🇭🇰',
+    tutorName: 'Ka-ming',
+    voiceName: 'zh-HK-WanLungNeural',
+    speechCode: 'zh-HK',
+    greeting: "你好，我係嘉明。你今日點呀？"
+  },
+  Chinese: {
+    id: 'Chinese',
+    name: 'Chinese',
+    flag: '🇨🇳',
+    tutorName: 'Li Wei',
+    voiceName: 'zh-CN-YunxiNeural',
+    speechCode: 'zh-CN',
+    greeting: "你好，我是李伟。你今天怎么样？"
+  }
 };
 
-let currentVoiceName = 'en-US-ChristopherNeural';
-let currentSessionId = Math.random().toString(36).substring(7) + Date.now().toString();
+let currentSessionId = Date.now().toString();
 
 export const resetSession = () => {
-  currentSessionId = Math.random().toString(36).substring(7) + Date.now().toString();
+  currentSessionId = Date.now().toString();
 };
 
-// Helper to get the correct API URL
-export const getApiUrl = (endpoint: string) => {
-  // Check Environment Variable
-  // Safe access using optional chaining in case import.meta.env is undefined
+export const getApiUrl = (endpoint: string): string => {
+  // Use environment variable (Vite injects this at build time)
+  // Default to empty string if not set, which implies relative path for proxy
   const baseUrl = import.meta.env?.VITE_API_URL || '';
-  const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-  return `${cleanBaseUrl}${endpoint}`;
+  const cleanBase = baseUrl.replace(/\/$/, '');
+  return `${cleanBase}${endpoint}`;
 };
 
-// Helper for Fetch with Timeout
-const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
-  // Safe access using optional chaining
+const getTimeout = () => {
   const envTimeout = import.meta.env?.VITE_API_TIMEOUT;
-  const timeoutMs = parseInt(envTimeout || '25000', 10);
+  return envTimeout ? parseInt(envTimeout) : 15000;
+};
+
+const fetchWithTimeout = async (resource: string, options: RequestInit = {}) => {
+  const timeout = getTimeout();
 
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
+  const id = setTimeout(() => controller.abort(), timeout);
 
   try {
-    console.log(`Fetching: ${url}`); // Debug log
-    const response = await fetch(url, {
+    const response = await fetch(resource, {
       ...options,
       signal: controller.signal
     });
@@ -47,7 +111,7 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
   } catch (error: any) {
     clearTimeout(id);
     if (error.name === 'AbortError') {
-      throw new Error(`Request timed out after ${timeoutMs / 1000} seconds. The server might be waking up.`);
+      throw new Error(`Request timed out after ${timeout / 1000} seconds. Backend might be sleeping.`);
     }
     throw error;
   }
@@ -58,84 +122,106 @@ export const chatWithGemini = async (
   language: SupportedLanguage,
   scenario?: Scenarios,
   audioBase64?: string,
-  audioMimeType?: string
+  audioMimeType?: string,
+  userId?: string
 ): Promise<{ correction: CorrectionData, response: TutorResponseData }> => {
 
-  const config = LANGUAGE_CONFIGS[language];
-  currentVoiceName = config.voiceName;
+  if (import.meta.env?.VITE_USE_MOCK === 'true') {
+    return getMockChatResponse(message);
+  }
 
   const response = await fetchWithTimeout(getApiUrl('/api/chat'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message,
-      audioData: audioBase64, // Pass audio data if available
-      audioMimeType,          // Pass detected mime type
-      sessionId: currentSessionId,
+      audioData: audioBase64,
+      audioMimeType,
       language,
-      scenario
+      sessionId: currentSessionId,
+      scenario,
+      userId
     })
   });
 
   if (!response.ok) {
-    let errorMessage = response.statusText;
+    const errorText = await response.text();
+    let errorMsg = `Backend Error: ${response.status} ${response.statusText}`;
     try {
-      const errorData = await response.json();
-      if (errorData.error) {
-        errorMessage = errorData.error;
-      }
+      const errorJson = JSON.parse(errorText);
+      if (errorJson.error) errorMsg = errorJson.error;
     } catch (e) {
-      // If parsing fails, stick with statusText
+      // use raw text
     }
-    throw new Error(`Backend Error: ${errorMessage}`);
+    throw new Error(errorMsg);
+  }
+
+  return response.json();
+};
+
+export const generateSpeech = async (text: string, voiceName?: string): Promise<AudioResponse> => {
+  if (import.meta.env?.VITE_USE_MOCK === 'true') {
+    return getMockAudioResponse();
+  }
+
+  const response = await fetchWithTimeout(getApiUrl('/api/tts'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text,
+      voiceName: voiceName || 'fr-FR-HenriNeural' // Default fallback
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error('Speech generation failed');
   }
 
   const data = await response.json();
+  const binaryString = window.atob(data.audioData);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
   return {
-    correction: data.correction,
-    response: data.response
+    data: bytes,
+    format: data.format || 'mp3'
   };
 };
 
-export interface AudioResponse {
-  data: Uint8Array;
-  format: 'mp3' | 'pcm';
-}
+// --- AUTH & PAYMENTS ---
 
-export const generateSpeech = async (text: string): Promise<AudioResponse> => {
-  if (!text) {
-    throw new Error("Cannot generate speech for empty text");
+export const loginWithGoogle = async (token: string, userProfile: any): Promise<User> => {
+  const response = await fetchWithTimeout(getApiUrl('/api/auth/google'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, userProfile })
+  });
+
+  if (!response.ok) {
+    throw new Error('Login failed');
   }
 
-  try {
-    const response = await fetchWithTimeout(getApiUrl('/api/tts'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voiceName: currentVoiceName })
-    });
+  return response.json();
+};
 
-    if (!response.ok) {
-      let errorMessage = response.statusText;
-      try {
-        const errorData = await response.json();
-        if (errorData.error) errorMessage = errorData.error;
-      } catch (e) { }
-      throw new Error(`TTS Backend Error: ${errorMessage}`);
-    }
+export const createCheckoutSession = async (userId: string, tier: 'basic' | 'pro' = 'pro'): Promise<string> => {
+  const response = await fetchWithTimeout(getApiUrl('/api/create-checkout-session'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId,
+      tier,
+      successUrl: window.location.origin, // Redirect back to app
+      cancelUrl: window.location.origin
+    })
+  });
 
-    const data = await response.json();
-    const base64Audio = data.audioData;
-    const format = data.format || 'mp3'; // Default to mp3 for Edge TTS
-
-    const binaryString = atob(base64Audio);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return { data: bytes, format };
-  } catch (error) {
-    console.error("TTS Error:", error);
-    throw error;
+  if (!response.ok) {
+    throw new Error('Failed to create checkout session');
   }
+
+  const data = await response.json();
+  return data.url;
 };

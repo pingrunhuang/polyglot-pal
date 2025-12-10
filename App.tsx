@@ -2,9 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import Header from './components/Header';
 import ChatBubble from './components/ChatBubble';
 import InputArea from './components/InputArea';
-import { Message, Sender, Scenarios, SupportedLanguage, LanguageConfig } from './types';
-import { chatWithGemini, LANGUAGE_CONFIGS, resetSession, getApiUrl } from './services/geminiService';
-import { BookOpen, Coffee, Plane, Sparkles, AlertCircle, Globe2, ChevronRight, X, Terminal, ShieldAlert, Loader2 } from 'lucide-react';
+import AuthForm from './components/AuthForm';
+import PricingModal from './components/PricingModal';
+import { Message, Sender, Scenarios, SupportedLanguage, LanguageConfig, User } from './types';
+import { chatWithGemini, LANGUAGE_CONFIGS, resetSession, getApiUrl, createCheckoutSession } from './services/geminiService';
+import { BookOpen, Coffee, Plane, Sparkles, AlertCircle, Globe2, ChevronRight, X, Terminal, ShieldAlert, Loader2, Save } from 'lucide-react';
+import { supabase } from './services/supabase';
 
 const SCENARIO_OPTIONS = [
   { id: Scenarios.INTRO, icon: Sparkles, label: 'Basics', desc: 'Start from scratch' },
@@ -85,6 +88,13 @@ function App() {
   const [loadingText, setLoadingText] = useState("Tutor is thinking...");
   const [loadingScenario, setLoadingScenario] = useState<Scenarios | null>(null);
 
+  // Auth & UI State
+  const [user, setUser] = useState<User | null>(null);
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showPricingModal, setShowPricingModal] = useState(false);
+  const [loadingTier, setLoadingTier] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -94,6 +104,56 @@ function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  // Supabase Auth Listener
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          name: session.user.email?.split('@')[0] || 'User',
+          email: session.user.email || '',
+          picture: '', // Placeholder
+          isPremium: false // TODO: Fetch from DB in real app
+        });
+      }
+      setLoadingAuth(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser({
+          id: session.user.id,
+          name: session.user.email?.split('@')[0] || 'User',
+          email: session.user.email || '',
+          picture: '',
+          isPremium: false
+        });
+        setShowAuthModal(false); // Close modal on successful login
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Check for Payment Success
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const userIdParam = urlParams.get('userId');
+    const sessionId = urlParams.get('session_id');
+
+    if (userIdParam && (sessionId || urlParams.get('simulated_payment'))) {
+      if (user && user.id === userIdParam) {
+        setUser({ ...user, isPremium: true });
+        alert("Payment Successful! Premium Activated.");
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+  }, [user]);
 
   useEffect(() => {
     let interval: any;
@@ -119,7 +179,7 @@ function App() {
     setMessages([]);
     setErrorMsg(null);
     setDebugInfo(null);
-    resetSession(); // New session ID for new language
+    resetSession();
   };
 
   const handleBackToSelection = () => {
@@ -130,6 +190,45 @@ function App() {
     setLoadingScenario(null);
   };
 
+  const handleLogout = async () => {
+    try {
+      // customized supabase logout logic
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.warn("Supabase sign out error (cleanup will continue):", error.message);
+      }
+    } catch (err) {
+      console.error("Unexpected error during sign out:", err);
+    } finally {
+      // Force clear all local storage to ensure token is gone
+      // This fixes the issue where a server-side invalid session prevents client-side cleanup
+      localStorage.clear();
+
+      setUser(null);
+      resetSession();
+      setMessages([]);
+      setHasStarted(false);
+    }
+  };
+
+  const handleSelectTier = async (tier: 'basic' | 'pro') => {
+    if (!user) {
+      setShowPricingModal(false);
+      setShowAuthModal(true);
+      return;
+    }
+
+    setLoadingTier(tier);
+    try {
+      // Pass tier info if backend supports it, for now just calling createCheckoutSession
+      const checkoutUrl = await createCheckoutSession(user.id, tier);
+      window.location.href = checkoutUrl;
+    } catch (error: any) {
+      setErrorMsg("Could not initiate payment: " + error.message);
+      setLoadingTier(null);
+    }
+  };
+
   const startScenario = async (scenario: Scenarios) => {
     if (!selectedLanguage || !currentConfig) return;
 
@@ -137,10 +236,10 @@ function App() {
     setMessages([]);
     setErrorMsg(null);
     setDebugInfo(null);
-    resetSession(); // New session ID for new scenario
+    resetSession();
 
     try {
-      const result = await chatWithGemini('', selectedLanguage, scenario);
+      const result = await chatWithGemini('', selectedLanguage, scenario, undefined, undefined, user?.id);
 
       const tutorMsg: Message = {
         id: Date.now().toString(),
@@ -161,13 +260,11 @@ function App() {
     }
   };
 
-  // Convert Blob to Base64 Helper
   const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = reader.result as string;
-        // Remove the data URL prefix (e.g., "data:audio/webm;base64,")
         const base64Data = base64String.split(',')[1];
         resolve(base64Data);
       };
@@ -181,14 +278,12 @@ function App() {
     setErrorMsg(null);
     setDebugInfo(null);
 
-    // Create Audio URL for local playback if recording exists
     const audioUrl = audioBlob ? URL.createObjectURL(audioBlob) : undefined;
 
-    // 1. Add User Message to UI
     const userMsg: Message = {
       id: Date.now().toString(),
       sender: Sender.USER,
-      text: text, // Might be empty if audio only
+      text: text,
       timestamp: Date.now(),
       userAudioUrl: audioUrl
     };
@@ -197,15 +292,12 @@ function App() {
 
     try {
       let audioBase64: string | undefined = undefined;
-
       if (audioBlob) {
         audioBase64 = await blobToBase64(audioBlob);
       }
 
-      // 2. Call Stateful Backend
-      // Pass audioBlob.type if available
       const mimeType = audioBlob?.type;
-      const result = await chatWithGemini(text, selectedLanguage, undefined, audioBase64, mimeType);
+      const result = await chatWithGemini(text, selectedLanguage, undefined, audioBase64, mimeType, user?.id);
 
       const tutorMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -255,14 +347,28 @@ function App() {
     setErrorMsg(null);
     setDebugInfo(null);
     setLoadingScenario(null);
+    resetSession();
   };
 
-  // --- RENDER: LANGUAGE SELECTION SCREEN ---
+  // --- RENDER: LOADING ---
+  if (loadingAuth) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-50">
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
+
+  // --- RENDER: LANGUAGE SELECTION SCREEN (HOME) ---
   if (!selectedLanguage || !currentConfig) {
     return (
       <div className="flex flex-col h-[100dvh] bg-slate-50 font-sans relative">
         <Header
           onReset={() => { }}
+          user={user}
+          onLoginClick={() => setShowAuthModal(true)}
+          onLogout={handleLogout}
+          onUpgrade={() => setShowPricingModal(true)}
         />
         <main className="flex-1 overflow-y-auto p-4 pt-24 scroll-smooth">
           <div className="max-w-4xl w-full mx-auto animate-fade-in min-h-full flex flex-col pb-8">
@@ -298,6 +404,29 @@ function App() {
             </div>
           </div>
         </main>
+
+        {/* MODALS */}
+        {showAuthModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+            <div className="w-full max-w-md">
+              <AuthForm onClose={() => setShowAuthModal(false)} />
+            </div>
+          </div>
+        )}
+
+        {showPricingModal && (
+          <PricingModal
+            onClose={() => setShowPricingModal(false)}
+            isLoggedIn={!!user}
+            onLogin={() => {
+              setShowPricingModal(false);
+              setShowAuthModal(true);
+            }}
+            onSelectTier={handleSelectTier}
+            loadingTier={loadingTier}
+          />
+        )}
+
         {errorMsg && (
           <ErrorModal
             message={errorMsg}
@@ -316,11 +445,32 @@ function App() {
         onReset={handleReset}
         onBack={handleBackToSelection}
         config={currentConfig}
+        user={user}
+        onLoginClick={() => setShowAuthModal(true)}
+        onLogout={handleLogout}
+        onUpgrade={() => setShowPricingModal(true)}
       />
 
       {/* PT-24 ensures content starts below the fixed header */}
       <main className="flex-1 overflow-y-auto p-3 sm:p-4 pt-24 scroll-smooth">
         <div className="max-w-3xl mx-auto min-h-full flex flex-col">
+
+          {!user && (
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="w-full mb-4 px-4 py-2 bg-blue-50 border border-blue-100 rounded-lg flex items-center justify-between text-blue-700 hover:bg-blue-100 transition-colors group"
+            >
+              <div className="flex items-center text-sm font-medium">
+                <div className="p-1 bg-blue-200 rounded-full mr-3 text-blue-800">
+                  <Save className="w-4 h-4" />
+                </div>
+                <span>Guest Mode: Chat history is not saved.</span>
+              </div>
+              <div className="text-xs font-bold bg-white px-2 py-1 rounded shadow-sm group-hover:shadow-md transition-shadow">
+                Sign In
+              </div>
+            </button>
+          )}
 
           {!hasStarted && (
             <div className="flex-1 flex flex-col items-center justify-center space-y-8 py-12 animate-fade-in">
@@ -328,7 +478,7 @@ function App() {
                 <div className="w-24 h-24 bg-white rounded-full mx-auto flex items-center justify-center shadow-xl border-4 border-blue-50 mb-6">
                   <span className="text-6xl">{currentConfig.flag}</span>
                 </div>
-                <h2 className="text-3xl font-bold text-slate-800">{currentConfig.greeting}</h2>
+                <h2 className="text-3xl font-bold text-slate-800">Bienvenue!</h2>
                 <p className="text-slate-500 max-w-md mx-auto">
                   I am {currentConfig.tutorName}. Choose a scenario to start our conversation in {currentConfig.name}.
                 </p>
@@ -409,6 +559,29 @@ function App() {
           languageCode={currentConfig.speechCode}
         />
       )}
+
+      {/* MODALS Available in Chat as well */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md">
+            <AuthForm onClose={() => setShowAuthModal(false)} />
+          </div>
+        </div>
+      )}
+
+      {showPricingModal && (
+        <PricingModal
+          onClose={() => setShowPricingModal(false)}
+          isLoggedIn={!!user}
+          onLogin={() => {
+            setShowPricingModal(false);
+            setShowAuthModal(true);
+          }}
+          onSelectTier={handleSelectTier}
+          loadingTier={loadingTier}
+        />
+      )}
+
 
       {errorMsg && (
         <ErrorModal

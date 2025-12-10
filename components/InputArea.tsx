@@ -146,8 +146,8 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
             onTouchEnd={stopRecordingAndSend}
             disabled={disabled}
             className={`p-3 rounded-xl transition-all flex-shrink-0 select-none touch-none ${isRecording
-                ? 'bg-red-500 text-white shadow-md scale-110 ring-4 ring-red-200'
-                : 'text-slate-400 hover:bg-white hover:text-blue-600'
+              ? 'bg-red-500 text-white shadow-md scale-110 ring-4 ring-red-200'
+              : 'text-slate-400 hover:bg-white hover:text-blue-600'
               } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:scale-95'}`}
             title="Hold to Record, Release to Send"
           >
@@ -178,8 +178,8 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled, tutorName = "Tu
               onClick={handleSend}
               disabled={!text.trim() || disabled}
               className={`p-3 rounded-xl transition-all flex-shrink-0 ${text.trim() && !disabled
-                  ? 'bg-blue-600 text-white shadow-md hover:bg-blue-700 transform hover:-translate-y-0.5'
-                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                ? 'bg-blue-600 text-white shadow-md hover:bg-blue-700 transform hover:-translate-y-0.5'
+                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 }`}
             >
               <Send className="w-5 h-5" />

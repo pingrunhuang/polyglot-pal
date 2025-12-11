@@ -1,5 +1,5 @@
 {
-  "name": "ami-francais",
+  "name": "LangPal",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,17 +12,12 @@
   },
   "dependencies": {
     "@google/genai": "^0.2.0",
-    "@react-oauth/google": "^0.12.2",
-    "@supabase/supabase-js": "^2.87.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.18.2",
-    "jwt-decode": "^4.0.0",
     "lucide-react": "^0.344.0",
-    "msedge-tts": "^2.0.2",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "stripe": "^14.25.0"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",

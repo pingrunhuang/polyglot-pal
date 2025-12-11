@@ -1,3 +1,4 @@
+
 export enum Sender {
   USER = 'USER',
   TUTOR = 'TUTOR'
@@ -15,14 +16,6 @@ export interface LanguageConfig {
   greeting: string;
 }
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  picture: string;
-  isPremium: boolean;
-}
-
 export interface CorrectionData {
   hasMistake: boolean;
   correctedText?: string | null;
@@ -33,11 +26,6 @@ export interface TutorResponseData {
   targetText: string; // The text in the target language (formerly 'french')
   english: string;
   chinese: string;
-}
-
-export interface AudioResponse {
-  data: Uint8Array;
-  format: 'mp3' | 'pcm';
 }
 
 export interface Message {
@@ -63,4 +51,9 @@ export enum Scenarios {
   CAFE = "Ordering at a Café",
   TRAVEL = "Asking for Directions",
   HOBBIES = "Discussing Hobbies"
+}
+
+export interface AudioResponse {
+  data: Uint8Array;
+  format: 'mp3' | 'pcm';
 }

@@ -1,69 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ami Français - Your AI French Tutor</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Caveat:wght@600&display=swap"
-    rel="stylesheet">
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'sans-serif'],
-            handwriting: ['Caveat', 'cursive'],
-          },
-          colors: {
-            french: {
-              blue: '#0055A4',
-              white: '#FFFFFF',
-              red: '#EF4135',
-              dark: '#1a1a1a',
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ami Français - Your AI French Tutor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Caveat:wght@600&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              handwriting: ['Caveat', 'cursive'],
+            },
+            colors: {
+              french: {
+                blue: '#0055A4',
+                white: '#FFFFFF',
+                red: '#EF4135',
+                dark: '#1a1a1a',
+              }
             }
           }
         }
       }
-    }
-  </script>
-  <style>
-    /* Custom Scrollbar */
-    ::-webkit-scrollbar {
-      width: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: #cbd5e1;
-      border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: #94a3b8;
-    }
-
-    .animate-fade-in {
-      animation: fadeIn 0.5s ease-out forwards;
-    }
-
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
+    </script>
+    <style>
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
       }
-
-      to {
-        opacity: 1;
-        transform: translateY(0);
+      ::-webkit-scrollbar-track {
+        background: transparent;
       }
-    }
-  </style>
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+      .animate-fade-in {
+        animation: fadeIn 0.5s ease-out forwards;
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+    </style>
   <script type="importmap">
 {
   "imports": {
@@ -80,18 +65,14 @@
     "https": "https://aistudiocdn.com/https@^1.0.0",
     "fs": "https://aistudiocdn.com/fs@^0.0.1-security",
     "msedge-tts": "https://aistudiocdn.com/msedge-tts@^2.0.2",
-    "microsoft-cognitiveservices-speech-sdk": "https://aistudiocdn.com/microsoft-cognitiveservices-speech-sdk@^1.47.0",
-    "stripe": "https://aistudiocdn.com/stripe@^20.0.0",
-    "@react-oauth/google": "https://aistudiocdn.com/@react-oauth/google@^0.12.2",
-    "jwt-decode": "https://aistudiocdn.com/jwt-decode@^4.0.0"
+    "microsoft-cognitiveservices-speech-sdk": "https://aistudiocdn.com/microsoft-cognitiveservices-speech-sdk@^1.47.0"
   }
 }
 </script>
+<link rel="stylesheet" href="/index.css">
 </head>
-
-<body class="bg-slate-50 text-slate-900 antialiased h-screen overflow-hidden">
-  <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
-
+  <body class="bg-slate-50 text-slate-900 antialiased h-screen overflow-hidden">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
 </html>

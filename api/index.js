@@ -2,8 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Modality } from "@google/genai";
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
-import Stripe from 'stripe';
 
 dotenv.config();
 
@@ -19,14 +17,10 @@ app.use(express.json({ limit: '10mb' })); // Increase limit for audio blobs
 
 // --- Configuration ---
 const apiKey = process.env.API_KEY;
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_dummy', { apiVersion: '2023-10-16' });
-
 const ai = new GoogleGenAI({ apiKey: apiKey });
 
-// --- MOCK DATABASE (In-Memory) ---
-// In a real app, use MongoDB/Postgres
-const chatSessions = new Map(); // For Guest Users: sessionId -> history[]
-const users = new Map(); // For Logged In Users: userId -> { profile, history[], isPremium }
+// --- STATEFUL STORAGE (In-Memory) ---
+const chatSessions = new Map();
 
 const LANGUAGE_CONFIGS = {
     French: { name: 'French', tutorName: 'Pierre' },
@@ -101,156 +95,29 @@ const checkConnectivity = async () => {
     }
 };
 
-// --- AUTH ROUTES ---
-
-// Verify Google Token and Login/Register User
-app.post('/api/auth/google', async (req, res) => {
-    const { token, userProfile } = req.body;
-    if (!token || !userProfile) return res.status(400).json({ error: "Missing token" });
-
-    const userId = userProfile.sub; // Google unique ID
-
-    if (!users.has(userId)) {
-        // Register new user
-        users.set(userId, {
-            profile: userProfile,
-            history: [],
-            isPremium: false,
-            lastLogin: Date.now()
-        });
-        console.log(`New User Registered: ${userProfile.email}`);
-    } else {
-        // Update existing user login time
-        const user = users.get(userId);
-        user.lastLogin = Date.now();
-        users.set(userId, user);
-        console.log(`User Logged In: ${userProfile.email} (Premium: ${user.isPremium})`);
-    }
-
-    const userData = users.get(userId);
-    res.json({
-        id: userId,
-        name: userData.profile.name,
-        email: userData.profile.email,
-        picture: userData.profile.picture,
-        isPremium: userData.isPremium
-    });
-});
-
-// --- PAYMENT ROUTES ---
-
-app.post('/api/create-checkout-session', async (req, res) => {
-    const { userId, tier, successUrl, cancelUrl } = req.body;
-
-    const PRICING = {
-        basic: { amount: 100, name: 'Polyglot Pal Learner' }, // $1.00
-        pro: { amount: 500, name: 'Polyglot Pal Premium' }   // $5.00
-    };
-
-    const selectedTier = PRICING[tier] || PRICING.pro;
-
-    if (!process.env.STRIPE_SECRET_KEY) {
-        console.warn("⚠️ No Stripe Key found. Simulating success for demo.");
-        // In a real app, this would be a real Stripe session
-        return res.json({ url: `${successUrl}?simulated_payment=true&userId=${userId}&tier=${tier}` });
-    }
-
-    try {
-        const session = await stripe.checkout.sessions.create({
-            payment_method_types: ['card'],
-            line_items: [
-                {
-                    price_data: {
-                        currency: 'usd',
-                        product_data: {
-                            name: selectedTier.name,
-                            description: 'Unlimited Context History',
-                        },
-                        unit_amount: selectedTier.amount,
-                    },
-                    quantity: 1,
-                },
-            ],
-
-            mode: 'payment',
-            success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}&userId=${userId}`,
-            cancel_url: cancelUrl,
-            client_reference_id: userId,
-        });
-
-        res.json({ url: session.url });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// Mock endpoint to confirm payment (called by frontend on success redirect)
-app.post('/api/confirm-payment', (req, res) => {
-    const { userId } = req.body;
-    if (users.has(userId)) {
-        const user = users.get(userId);
-        user.isPremium = true;
-        users.set(userId, user);
-        console.log(`User ${userId} upgraded to Premium`);
-        res.json({ success: true, isPremium: true });
-    } else {
-        res.status(404).json({ error: "User not found" });
-    }
-});
-
-// --- CHAT ROUTE ---
+// --- ROUTES ---
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { message, audioData, audioMimeType, sessionId, userId, language, scenario } = req.body;
+        const { message, audioData, audioMimeType, sessionId, language, scenario } = req.body;
         const config = LANGUAGE_CONFIGS[language] || LANGUAGE_CONFIGS.French;
 
-        let history = [];
-        let isPremium = false;
-
-        // 1. Determine Identity (User or Guest)
-        if (userId && users.has(userId)) {
-            // LOGGED IN USER
-            const user = users.get(userId);
-            history = user.history;
-            isPremium = user.isPremium;
-
-            // 2. Pruning Logic
-            if (!isPremium) {
-                const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-                const now = Date.now();
-                // Filter history to only keep messages from the last 7 days
-                // Note: We need to store timestamp in history for this to work accurately. 
-                // For simplicity in this demo structure (Gemini history format), we just truncate the array if it gets too big 
-                // OR we just assume the session is refreshed weekly. 
-                // Let's implement a hard cap length for free users as a proxy for time in this specific data structure.
-
-                // Better: We strictly filter if we added timestamps. 
-                // Since Gemini API structure is { role, parts }, we'll attach a hidden timestamp property or just limit length.
-
-                // Strict Policy: Free users get last 50 turns (~1 week of light usage)
-                if (history.length > 50) {
-                    history = history.slice(history.length - 50);
-                }
-            }
-
-            console.log(`Chatting as User: ${user.profile.email} (History size: ${history.length})`);
-        } else {
-            // GUEST
-            if (!chatSessions.has(sessionId)) {
-                chatSessions.set(sessionId, []);
-            }
-            history = chatSessions.get(sessionId);
-            console.log(`Chatting as Guest: ${sessionId}`);
+        // Manage History
+        if (!chatSessions.has(sessionId)) {
+            chatSessions.set(sessionId, []);
         }
+        const history = chatSessions.get(sessionId);
 
         // Prepare content parts
         const parts = [];
         if (audioData) {
+            // Ensure we pass the correct mime type, defaulting to audio/webm if unspecified
             parts.push({ inlineData: { mimeType: audioMimeType || 'audio/webm', data: audioData } });
         }
         if (message) {
             parts.push({ text: message });
+        } else {
+            parts.push({ text: `I want to discuss ${scenario}` });
         }
 
         if (parts.length === 0) {
@@ -258,8 +125,7 @@ app.post('/api/chat', async (req, res) => {
         }
 
         // Construct context for the model
-        // Remove custom internal properties (like timestamp) before sending to Gemini if we added them
-        // For this implementation, the history is pure Gemini format.
+        // We send previous history to maintain conversation context
         const contents = [
             ...history,
             { role: 'user', parts: parts }
@@ -278,11 +144,11 @@ app.post('/api/chat', async (req, res) => {
         const responseJson = parseGeminiJson(responseText);
 
         // Update history
-        history.push({ role: 'user', parts: parts });
-        history.push({ role: 'model', parts: [{ text: responseText }] });
+        history.push({ role: 'user', parts: parts }); // Save user turn
+        history.push({ role: 'model', parts: [{ text: responseText }] }); // Save model turn
 
-        // Safety cap to prevent memory leaks in this in-memory mock DB
-        if (history.length > 500) history.splice(0, 100);
+        // Limit history size to prevent context window issues
+        if (history.length > 20) history.splice(0, 2);
 
         res.json(responseJson);
 
@@ -292,7 +158,6 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
-// TTS Endpoint (Unchanged)
 app.post('/api/tts', async (req, res) => {
     try {
         const { text, voiceName } = req.body;
@@ -301,39 +166,33 @@ app.post('/api/tts', async (req, res) => {
             return res.status(400).json({ error: "Text is required" });
         }
 
-        console.log(`TTS Request: ${voiceName} - "${text.substring(0, 20)}..."`);
-
-        // Safety Timeout: If Edge doesn't respond in 15s, abort
-        const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Edge TTS timed out")), 15000)
-        );
-
-        const ttsPromise = new Promise(async (resolve, reject) => {
-            try {
-                const tts = new MsEdgeTTS();
-                await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-                const readable = tts.toStream(text);
-
-                const chunks = [];
-                readable.on("data", (chunk) => chunks.push(chunk));
-                readable.on("end", () => {
-                    const buffer = Buffer.concat(chunks);
-                    resolve(buffer.toString("base64"));
-                });
-                readable.on("error", (err) => reject(err));
-            } catch (err) {
-                reject(err);
+        // Use Gemini 2.5 Flash TTS (Standard Preview Model)
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: { parts: [{ text: text }] },
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' } }
+                }
             }
         });
 
-        // Race the TTS against the clock
-        const base64Audio = await Promise.race([ttsPromise, timeoutPromise]);
+        // Extract base64 audio
+        const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
 
-        res.json({ audioData: base64Audio, format: 'mp3' });
+        if (!audioData) {
+            throw new Error("No audio data generated");
+        }
+
+        res.json({
+            audioData: audioData,
+            format: 'pcm' // Frontend handles PCM decoding
+        });
 
     } catch (error) {
-        console.error("TTS Error:", JSON.stringify(error, Object.getOwnPropertyNames(error)));
-        res.status(500).json({ error: "Text-to-Speech generation failed." });
+        console.error("TTS Error:", error);
+        res.status(500).json({ error: error.message || "TTS Generation Failed" });
     }
 });
 

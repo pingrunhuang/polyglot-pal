@@ -1,22 +1,29 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality } from '@google/genai';
+import { initSupabase, createScopedSupabase } from './supabase.js';
 
 dotenv.config();
 
 const app = express();
+const port = process.env.PORT || 3000;
+
+// --- Configuration ---
+const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY; // Support both names
+
+// Initialize Supabase
+const supabase = initSupabase();
 
 // Allow all origins
 app.use(cors({
     origin: '*',
-    methods: ['GET', 'POST', 'OPTIONS']
+    methods: ['GET', 'POST', 'OPTIONS'],
 }));
 
 app.use(express.json({ limit: '10mb' })); // Increase limit for audio blobs
 
-// --- Configuration ---
-const apiKey = process.env.API_KEY;
+// --- AI Client ---
 const ai = new GoogleGenAI({ apiKey: apiKey });
 
 // --- STATEFUL STORAGE (In-Memory) ---
@@ -99,14 +106,44 @@ const checkConnectivity = async () => {
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { message, audioData, audioMimeType, sessionId, language, scenario } = req.body;
+        const { message, audioData, audioMimeType, sessionId, language, scenario, userId, history: clientHistory } = req.body;
         const config = LANGUAGE_CONFIGS[language] || LANGUAGE_CONFIGS.French;
+        let history = [];
 
-        // Manage History
-        if (!chatSessions.has(sessionId)) {
-            chatSessions.set(sessionId, []);
+        // 1. Try to use Client History first (Optimization)
+        if (clientHistory && Array.isArray(clientHistory)) {
+            history = clientHistory;
         }
-        const history = chatSessions.get(sessionId);
+        // 2. Fallback: Fetch from Supabase (only if no client history provided)
+        else if (userId && supabase) {
+            // Fetch from Supabase with Scope
+            const { data: dbHistory, error } = await supabase
+                .from('chat_history')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('language', language)
+                .eq('scenario', scenario)
+                .order('created_at', { ascending: true })
+                .limit(50);
+
+            if (!error && dbHistory) {
+                history = dbHistory.map(entry => ({
+                    role: entry.role,
+                    parts: entry.content
+                }));
+            } else if (error) {
+                console.error("Supabase Fetch Error:", error);
+            }
+        }
+
+        // Fallback or addition of in-memory for session continuity if DB fails or for anon users
+        // Note: For simplicity, if we have a userId, we rely on DB. If not, we use memory.
+        if (!userId) {
+            if (!chatSessions.has(sessionId)) {
+                chatSessions.set(sessionId, []);
+            }
+            history = chatSessions.get(sessionId);
+        }
 
         // Prepare content parts
         const parts = [];
@@ -116,12 +153,18 @@ app.post('/api/chat', async (req, res) => {
         }
         if (message) {
             parts.push({ text: message });
-        } else {
-            parts.push({ text: `I want to discuss ${scenario}` });
         }
 
+        let isAutoTrigger = false;
         if (parts.length === 0) {
-            return res.status(400).json({ error: "No message or audio provided" });
+            // Check if this is a new session (landing page)
+            if (history.length === 0) {
+                isAutoTrigger = true;
+                const prompt = `The user has entered the session. Scenario: "${scenario || 'General Chat'}". Please greet the user warmly as ${config.tutorName} and explicitly start the scenario.`;
+                parts.push({ text: prompt });
+            } else {
+                return res.status(400).json({ error: "No message or audio provided" });
+            }
         }
 
         // Construct context for the model
@@ -144,17 +187,83 @@ app.post('/api/chat', async (req, res) => {
         const responseJson = parseGeminiJson(responseText);
 
         // Update history
-        history.push({ role: 'user', parts: parts }); // Save user turn
-        history.push({ role: 'model', parts: [{ text: responseText }] }); // Save model turn
+        const userTurn = { role: 'user', parts: parts };
+        const modelTurn = { role: 'model', parts: [{ text: responseText }] };
 
-        // Limit history size to prevent context window issues
-        if (history.length > 20) history.splice(0, 2);
+        if (userId) {
+            // Token Forwarding for RLS
+            const authHeader = req.headers.authorization;
+            let scopedSupabase = supabase; // Fallback to server client (Anon) if no token
+
+            if (authHeader) {
+                const token = authHeader.split(' ')[1];
+                const scoped = createScopedSupabase(token);
+                if (scoped) {
+                    scopedSupabase = scoped;
+                    console.log("✅ Using Scoped Supabase Client for Insert");
+                }
+            } else {
+                console.warn("⚠️ No Auth Token provided. RLS might block insert.");
+            }
+
+            // Save to Supabase (ONLY Model turn as per policy)
+            console.log(`[DB Debug] Attempting to insert for User: ${userId}, Session: ${sessionId}`);
+
+            const { data: insertData, error: insertError } = await scopedSupabase.from('chat_history').insert([
+                { user_id: userId, session_id: sessionId, role: 'model', content: modelTurn.parts, language, scenario }
+            ]).select();
+
+            if (insertError) {
+                console.error("[DB Error] Insert failed:", insertError);
+            } else {
+                console.log("[DB Success] Inserted:", insertData);
+            }
+        } else {
+            // Memory Fallback
+            history.push(userTurn);
+            history.push(modelTurn);
+            if (history.length > 20) history.splice(0, 2);
+        }
 
         res.json(responseJson);
 
     } catch (error) {
         console.error("Chat Error:", error);
         res.status(500).json({ error: error.message || "Internal Server Error" });
+    }
+});
+
+app.post('/api/history', async (req, res) => {
+    try {
+        const { userId, language, scenario } = req.body;
+
+        if (!userId) return res.status(400).json({ error: "User ID required" });
+
+        // Token Forwarding
+        const authHeader = req.headers.authorization;
+        let scopedSupabase = supabase; // Default to anon
+
+        if (authHeader) {
+            const token = authHeader.split(' ')[1];
+            const scoped = createScopedSupabase(token);
+            if (scoped) scopedSupabase = scoped;
+        }
+
+        const { data, error } = await scopedSupabase
+            .from('chat_history')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('language', language)
+            .eq('scenario', scenario)
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        res.json({ history: data });
+
+    } catch (error) {
+        console.error("History Fetch Error:", error);
+        res.status(500).json({ error: error.message });
     }
 });
 

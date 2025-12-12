@@ -1,5 +1,6 @@
 import { CorrectionData, TutorResponseData, Scenarios, SupportedLanguage, LanguageConfig, AudioResponse } from "../types";
 import { getMockChatResponse, getMockAudioResponse, simulateNetworkDelay } from "./mockData";
+import { supabase } from "./supabaseClient";
 
 export const LANGUAGE_CONFIGS: Record<SupportedLanguage, LanguageConfig> = {
   French: { id: 'French', name: 'French', flag: '🇫🇷', tutorName: 'Pierre', voiceName: 'Puck', speechCode: 'fr-FR', greeting: 'Bonjour! Ça va?' },
@@ -19,26 +20,20 @@ export const resetSession = () => {
   currentSessionId = Math.random().toString(36).substring(7) + Date.now().toString();
 };
 
-// Helper to get the correct API URL
 export const getApiUrl = (endpoint: string) => {
-  // Check Environment Variable
-  // Safe access using optional chaining in case import.meta.env is undefined
-  const baseUrl = import.meta.env?.VITE_API_URL || ''; 
+  const baseUrl = import.meta.env?.VITE_API_URL || '';
   const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   return `${cleanBaseUrl}${endpoint}`;
 };
 
-// Helper for Fetch with Timeout
 const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
-  // Safe access using optional chaining
   const envTimeout = import.meta.env?.VITE_API_TIMEOUT;
   const timeoutMs = parseInt(envTimeout || '25000', 10);
-  
+
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    console.log(`Fetching: ${url}`); // Debug log
     const response = await fetch(url, {
       ...options,
       signal: controller.signal
@@ -55,33 +50,40 @@ const fetchWithTimeout = async (url: string, options: RequestInit = {}) => {
 };
 
 export const chatWithGemini = async (
-  message: string, 
+  message: string,
   language: SupportedLanguage,
   scenario?: Scenarios,
   audioBase64?: string,
-  audioMimeType?: string
+  audioMimeType?: string,
+  history?: any[],
+  userId?: string
 ): Promise<{ correction: CorrectionData, response: TutorResponseData }> => {
-  
+
   const config = LANGUAGE_CONFIGS[language];
   currentVoiceName = config.voiceName;
 
-  // --- MOCK MODE CHECK ---
   if (import.meta.env?.VITE_USE_MOCK === 'true') {
     console.warn("⚠️ USING MOCK DATA (No API Call) ⚠️");
-    // If user sends audio, we treat it as "normal" unless they typed "mistake"
     return getMockChatResponse(message);
   }
 
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const response = await fetchWithTimeout(getApiUrl('/api/chat'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ 
-      message, 
-      audioData: audioBase64, // Pass audio data if available
-      audioMimeType,          // Pass detected mime type
-      sessionId: currentSessionId, 
-      language, 
-      scenario 
+    headers,
+    body: JSON.stringify({
+      message,
+      audioData: audioBase64,
+      audioMimeType: audioMimeType || 'audio/webm',
+      sessionId: currentSessionId,
+      language,
+      scenario,
+      history,
+      userId
     })
   });
 
@@ -92,9 +94,7 @@ export const chatWithGemini = async (
       if (errorData.error) {
         errorMessage = errorData.error;
       }
-    } catch (e) {
-      // If parsing fails, stick with statusText
-    }
+    } catch (e) { }
     throw new Error(`Backend Error: ${errorMessage}`);
   }
 
@@ -110,13 +110,11 @@ export const generateSpeech = async (text: string): Promise<AudioResponse> => {
     throw new Error("Cannot generate speech for empty text");
   }
 
-  // --- MOCK MODE CHECK ---
   if (import.meta.env?.VITE_USE_MOCK === 'true') {
-    console.warn("⚠️ USING MOCK TTS (Silent Buffer) ⚠️");
     await simulateNetworkDelay(500);
     return getMockAudioResponse();
   }
-  
+
   try {
     const response = await fetchWithTimeout(getApiUrl('/api/tts'), {
       method: 'POST',
@@ -129,14 +127,14 @@ export const generateSpeech = async (text: string): Promise<AudioResponse> => {
       try {
         const errorData = await response.json();
         if (errorData.error) errorMessage = errorData.error;
-      } catch (e) {}
+      } catch (e) { }
       throw new Error(`TTS Backend Error: ${errorMessage}`);
     }
 
     const data = await response.json();
     const base64Audio = data.audioData;
-    const format = data.format || 'mp3'; // Default to mp3 for Edge TTS
-    
+    const format = data.format || 'mp3';
+
     const binaryString = atob(base64Audio);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
@@ -148,4 +146,25 @@ export const generateSpeech = async (text: string): Promise<AudioResponse> => {
     console.error("TTS Error:", error);
     throw error;
   }
+};
+
+export const fetchHistory = async (userId: string, language: string, scenario: string) => {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData?.session?.access_token;
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetchWithTimeout(getApiUrl('/api/history'), {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ userId, language, scenario })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch history: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.history;
 };

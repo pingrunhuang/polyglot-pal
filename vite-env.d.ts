@@ -2,7 +2,8 @@ interface ImportMetaEnv {
   readonly VITE_API_URL: string;
   readonly VITE_API_TIMEOUT: string;
   readonly VITE_USE_MOCK: string;
-  // more env variables...
+  readonly VITE_SUPABASE_URL: string;
+  readonly VITE_SUPABASE_ANON_KEY: string;
 }
 
 interface ImportMeta {

@@ -23,7 +23,7 @@ export interface CorrectionData {
 }
 
 export interface TutorResponseData {
-  targetText: string; // The text in the target language (formerly 'french')
+  targetText: string;
   english: string;
   chinese: string;
 }
@@ -31,10 +31,9 @@ export interface TutorResponseData {
 export interface Message {
   id: string;
   sender: Sender;
-  text: string; // Raw text for user, unused for tutor if structured data is present
+  text: string;
   timestamp: number;
-  userAudioUrl?: string; // URL to local blob for playback
-  // Specific to Tutor responses
+  userAudioUrl?: string; 
   correction?: CorrectionData;
   tutorResponse?: TutorResponseData;
   isLoading?: boolean;
@@ -56,4 +55,9 @@ export enum Scenarios {
 export interface AudioResponse {
   data: Uint8Array;
   format: 'mp3' | 'pcm';
+}
+
+export interface User {
+  id: string;
+  email?: string;
 }

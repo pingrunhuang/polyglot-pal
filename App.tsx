@@ -208,8 +208,8 @@ function App() {
   const handleBackToSelection = () => {
     setSelectedLanguage(null);
     setCurrentConfig(null);
-    // Only reset UI state, keep fetched messages in memory if needed, 
-    // but typically we hide them until lang selected again.
+    // Reset UI state and clear messages to allow scenario re-selection
+    setMessages([]);
     setHasStarted(false);
     setLoadingScenario(null);
     setActiveScenario(null);

@@ -341,7 +341,7 @@ function App() {
   };
 
   const handleSendMessage = async (text: string, audioBlob?: Blob) => {
-    if (!currentConfig || !selectedLanguage) return;
+    if (!currentConfig || !selectedLanguage || !activeScenario) return;
     setErrorMsg(null);
     setDebugInfo(null);
 
@@ -384,7 +384,7 @@ function App() {
       }) : undefined;
 
       const mimeType = audioBlob?.type;
-      const result = await chatWithGemini(text, selectedLanguage, undefined, audioBase64, mimeType, historyContext, user?.id);
+      const result = await chatWithGemini(text, selectedLanguage, activeScenario, audioBase64, mimeType, historyContext, user?.id);
 
       const tutorMsgContent = {
         text: '',
